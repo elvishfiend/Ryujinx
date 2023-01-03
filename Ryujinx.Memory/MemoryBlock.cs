@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
@@ -8,15 +7,9 @@ namespace Ryujinx.Memory
     /// <summary>
     /// Represents a block of contiguous physical guest memory.
     /// </summary>
-    public sealed class MemoryBlock : IWritableBlock, IDisposable
+    public sealed class MemoryBlock : IDisposable
     {
-        private readonly bool _usesSharedMemory;
-        private readonly bool _isMirror;
-        private readonly bool _viewCompatible;
-        private IntPtr _sharedMemory;
         private IntPtr _pointer;
-        private ConcurrentDictionary<MemoryBlock, byte> _viewStorages;
-        private int _viewCount;
 
         /// <summary>
         /// Pointer to the memory block data.
@@ -29,24 +22,17 @@ namespace Ryujinx.Memory
         public ulong Size { get; }
 
         /// <summary>
-        /// Creates a new instance of the memory block class.
+        /// Initializes a new instance of the memory block class.
         /// </summary>
-        /// <param name="size">Size of the memory block in bytes</param>
+        /// <param name="size">Size of the memory block</param>
         /// <param name="flags">Flags that controls memory block memory allocation</param>
         /// <exception cref="OutOfMemoryException">Throw when there's no enough memory to allocate the requested size</exception>
         /// <exception cref="PlatformNotSupportedException">Throw when the current platform is not supported</exception>
         public MemoryBlock(ulong size, MemoryAllocationFlags flags = MemoryAllocationFlags.None)
         {
-            if (flags.HasFlag(MemoryAllocationFlags.Mirrorable))
+            if (flags.HasFlag(MemoryAllocationFlags.Reserve))
             {
-                _sharedMemory = MemoryManagement.CreateSharedMemory(size, flags.HasFlag(MemoryAllocationFlags.Reserve));
-                _pointer = MemoryManagement.MapSharedMemory(_sharedMemory, size);
-                _usesSharedMemory = true;
-            }
-            else if (flags.HasFlag(MemoryAllocationFlags.Reserve))
-            {
-                _viewCompatible = flags.HasFlag(MemoryAllocationFlags.ViewCompatible);
-                _pointer = MemoryManagement.Reserve(size, _viewCompatible);
+                _pointer = MemoryManagement.Reserve(size);
             }
             else
             {
@@ -54,43 +40,6 @@ namespace Ryujinx.Memory
             }
 
             Size = size;
-
-            _viewStorages = new ConcurrentDictionary<MemoryBlock, byte>();
-            _viewStorages.TryAdd(this, 0);
-            _viewCount = 1;
-        }
-
-        /// <summary>
-        /// Creates a new instance of the memory block class, with a existing backing storage.
-        /// </summary>
-        /// <param name="size">Size of the memory block in bytes</param>
-        /// <param name="sharedMemory">Shared memory to use as backing storage for this block</param>
-        /// <exception cref="OutOfMemoryException">Throw when there's no enough address space left to map the shared memory</exception>
-        /// <exception cref="PlatformNotSupportedException">Throw when the current platform is not supported</exception>
-        private MemoryBlock(ulong size, IntPtr sharedMemory)
-        {
-            _pointer = MemoryManagement.MapSharedMemory(sharedMemory, size);
-            Size = size;
-            _usesSharedMemory = true;
-            _isMirror = true;
-        }
-
-        /// <summary>
-        /// Creates a memory block that shares the backing storage with this block.
-        /// The memory and page commitments will be shared, however memory protections are separate.
-        /// </summary>
-        /// <returns>A new memory block that shares storage with this one</returns>
-        /// <exception cref="NotSupportedException">Throw when the current memory block does not support mirroring</exception>
-        /// <exception cref="OutOfMemoryException">Throw when there's no enough address space left to map the shared memory</exception>
-        /// <exception cref="PlatformNotSupportedException">Throw when the current platform is not supported</exception>
-        public MemoryBlock CreateMirror()
-        {
-            if (_sharedMemory == IntPtr.Zero)
-            {
-                throw new NotSupportedException("Mirroring is not supported on the memory block because the Mirrorable flag was not set.");
-            }
-
-            return new MemoryBlock(Size, _sharedMemory);
         }
 
         /// <summary>
@@ -108,68 +57,17 @@ namespace Ryujinx.Memory
         }
 
         /// <summary>
-        /// Decommits a region of memory that has previously been reserved and optionally comitted.
-        /// This can be used to free previously allocated memory on demand.
-        /// </summary>
-        /// <param name="offset">Starting offset of the range to be decommitted</param>
-        /// <param name="size">Size of the range to be decommitted</param>
-        /// <returns>True if the operation was successful, false otherwise</returns>
-        /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
-        /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
-        public bool Decommit(ulong offset, ulong size)
-        {
-            return MemoryManagement.Decommit(GetPointerInternal(offset, size), size);
-        }
-
-        /// <summary>
-        /// Maps a view of memory from another memory block.
-        /// </summary>
-        /// <param name="srcBlock">Memory block from where the backing memory will be taken</param>
-        /// <param name="srcOffset">Offset on <paramref name="srcBlock"/> of the region that should be mapped</param>
-        /// <param name="dstOffset">Offset to map the view into on this block</param>
-        /// <param name="size">Size of the range to be mapped</param>
-        /// <exception cref="NotSupportedException">Throw when the source memory block does not support mirroring</exception>
-        /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
-        /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
-        public void MapView(MemoryBlock srcBlock, ulong srcOffset, ulong dstOffset, ulong size)
-        {
-            if (srcBlock._sharedMemory == IntPtr.Zero)
-            {
-                throw new ArgumentException("The source memory block is not mirrorable, and thus cannot be mapped on the current block.");
-            }
-
-            if (_viewStorages.TryAdd(srcBlock, 0))
-            {
-                srcBlock.IncrementViewCount();
-            }
-
-            MemoryManagement.MapView(srcBlock._sharedMemory, srcOffset, GetPointerInternal(dstOffset, size), size, this);
-        }
-
-        /// <summary>
-        /// Unmaps a view of memory from another memory block.
-        /// </summary>
-        /// <param name="srcBlock">Memory block from where the backing memory was taken during map</param>
-        /// <param name="offset">Offset of the view previously mapped with <see cref="MapView"/></param>
-        /// <param name="size">Size of the range to be unmapped</param>
-        public void UnmapView(MemoryBlock srcBlock, ulong offset, ulong size)
-        {
-            MemoryManagement.UnmapView(srcBlock._sharedMemory, GetPointerInternal(offset, size), size, this);
-        }
-
-        /// <summary>
         /// Reprotects a region of memory.
         /// </summary>
         /// <param name="offset">Starting offset of the range to be reprotected</param>
         /// <param name="size">Size of the range to be reprotected</param>
         /// <param name="permission">New memory permissions</param>
-        /// <param name="throwOnFail">True if a failed reprotect should throw</param>
         /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
         /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
         /// <exception cref="MemoryProtectionException">Throw when <paramref name="permission"/> is invalid</exception>
-        public void Reprotect(ulong offset, ulong size, MemoryPermission permission, bool throwOnFail = true)
+        public void Reprotect(ulong offset, ulong size, MemoryPermission permission)
         {
-            MemoryManagement.Reprotect(GetPointerInternal(offset, size), size, permission, _viewCompatible, throwOnFail);
+            MemoryManagement.Reprotect(GetPointerInternal(offset, size), size, permission);
         }
 
         /// <summary>
@@ -247,14 +145,13 @@ namespace Ryujinx.Memory
         }
 
         /// <summary>
-        /// Fills a region of memory with <paramref name="value"/>.
+        /// Fills a region of memory with zeros.
         /// </summary>
-        /// <param name="offset">Offset of the region to fill with <paramref name="value"/></param>
+        /// <param name="offset">Offset of the region to fill with zeros</param>
         /// <param name="size">Size in bytes of the region to fill</param>
-        /// <param name="value">Value to use for the fill</param>
         /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
         /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
-        public void Fill(ulong offset, ulong size, byte value)
+        public void ZeroFill(ulong offset, ulong size)
         {
             const int MaxChunkSize = 1 << 24;
 
@@ -262,7 +159,7 @@ namespace Ryujinx.Memory
             {
                 int copySize = (int)Math.Min(MaxChunkSize, size - subOffset);
 
-                GetSpan(offset + subOffset, copySize).Fill(value);
+                GetSpan(offset + subOffset, copySize).Fill(0);
             }
         }
 
@@ -279,7 +176,10 @@ namespace Ryujinx.Memory
         {
             IntPtr ptr = _pointer;
 
-            ObjectDisposedException.ThrowIf(ptr == IntPtr.Zero, this);
+            if (ptr == IntPtr.Zero)
+            {
+                ThrowObjectDisposed();
+            }
 
             int size = Unsafe.SizeOf<T>();
 
@@ -302,14 +202,17 @@ namespace Ryujinx.Memory
         /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
         /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public IntPtr GetPointer(ulong offset, ulong size) => GetPointerInternal(offset, size);
+        public IntPtr GetPointer(ulong offset, int size) => GetPointerInternal(offset, (ulong)size);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private IntPtr GetPointerInternal(ulong offset, ulong size)
         {
             IntPtr ptr = _pointer;
 
-            ObjectDisposedException.ThrowIf(ptr == IntPtr.Zero, this);
+            if (ptr == IntPtr.Zero)
+            {
+                ThrowObjectDisposed();
+            }
 
             ulong endOffset = offset + size;
 
@@ -332,7 +235,7 @@ namespace Ryujinx.Memory
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe Span<byte> GetSpan(ulong offset, int size)
         {
-            return new Span<byte>((void*)GetPointerInternal(offset, (ulong)size), size);
+            return new Span<byte>((void*)GetPointer(offset, size), size);
         }
 
         /// <summary>
@@ -346,20 +249,7 @@ namespace Ryujinx.Memory
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe Memory<byte> GetMemory(ulong offset, int size)
         {
-            return new NativeMemoryManager<byte>((byte*)GetPointerInternal(offset, (ulong)size), size).Memory;
-        }
-
-        /// <summary>
-        /// Gets a writable region of a given memory block region.
-        /// </summary>
-        /// <param name="offset">Start offset of the memory region</param>
-        /// <param name="size">Size in bytes of the region</param>
-        /// <returns>Writable region of the memory region</returns>
-        /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
-        /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
-        public WritableRegion GetWritableRegion(ulong offset, int size)
-        {
-            return new WritableRegion(null, offset, GetMemory(offset, size));
+            return new NativeMemoryManager<byte>((byte*)GetPointer(offset, size), size).Memory;
         }
 
         /// <summary>
@@ -379,12 +269,7 @@ namespace Ryujinx.Memory
         /// <remarks>
         /// It's an error to use the memory block after disposal.
         /// </remarks>
-        public void Dispose()
-        {
-            FreeMemory();
-
-            GC.SuppressFinalize(this);
-        }
+        public void Dispose() => FreeMemory();
 
         ~MemoryBlock() => FreeMemory();
 
@@ -395,64 +280,11 @@ namespace Ryujinx.Memory
             // If pointer is null, the memory was already freed or never allocated.
             if (ptr != IntPtr.Zero)
             {
-                if (_usesSharedMemory)
-                {
-                    MemoryManagement.UnmapSharedMemory(ptr, Size);
-                }
-                else
-                {
-                    MemoryManagement.Free(ptr, Size);
-                }
-
-                foreach (MemoryBlock viewStorage in _viewStorages.Keys)
-                {
-                    viewStorage.DecrementViewCount();
-                }
-
-                _viewStorages.Clear();
+                MemoryManagement.Free(ptr);
             }
         }
 
-        /// <summary>
-        /// Increments the number of views that uses this memory block as storage.
-        /// </summary>
-        private void IncrementViewCount()
-        {
-            Interlocked.Increment(ref _viewCount);
-        }
-
-        /// <summary>
-        /// Decrements the number of views that uses this memory block as storage.
-        /// </summary>
-        private void DecrementViewCount()
-        {
-            if (Interlocked.Decrement(ref _viewCount) == 0 && _sharedMemory != IntPtr.Zero && !_isMirror)
-            {
-                MemoryManagement.DestroySharedMemory(_sharedMemory);
-                _sharedMemory = IntPtr.Zero;
-            }
-        }
-
-        /// <summary>
-        /// Checks if the specified memory allocation flags are supported on the current platform.
-        /// </summary>
-        /// <param name="flags">Flags to be checked</param>
-        /// <returns>True if the platform supports all the flags, false otherwise</returns>
-        public static bool SupportsFlags(MemoryAllocationFlags flags)
-        {
-            if (flags.HasFlag(MemoryAllocationFlags.ViewCompatible))
-            {
-                if (OperatingSystem.IsWindows())
-                {
-                    return OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17134);
-                }
-
-                return OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
-            }
-
-            return true;
-        }
-
-        private static void ThrowInvalidMemoryRegionException() => throw new InvalidMemoryRegionException();
+        private void ThrowObjectDisposed() => throw new ObjectDisposedException(nameof(MemoryBlock));
+        private void ThrowInvalidMemoryRegionException() => throw new InvalidMemoryRegionException();
     }
 }

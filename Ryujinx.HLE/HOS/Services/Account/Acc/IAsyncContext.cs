@@ -7,18 +7,18 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
 {
     class IAsyncContext : IpcService
     {
-        protected AsyncExecution AsyncExecution;
+        AsyncExecution _asyncExecution;
 
         public IAsyncContext(AsyncExecution asyncExecution)
         {
-            AsyncExecution = asyncExecution;
+            _asyncExecution = asyncExecution;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetSystemEvent() -> handle<copy>
         public ResultCode GetSystemEvent(ServiceCtx context)
         {
-            if (context.Process.HandleTable.GenerateHandle(AsyncExecution.SystemEvent.ReadableEvent, out int _systemEventHandle) != KernelResult.Success)
+            if (context.Process.HandleTable.GenerateHandle(_asyncExecution.SystemEvent.ReadableEvent, out int _systemEventHandle) != KernelResult.Success)
             {
                 throw new InvalidOperationException("Out of handles!");
             }
@@ -28,47 +28,47 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return ResultCode.Success;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // Cancel()
         public ResultCode Cancel(ServiceCtx context)
         {
-            if (!AsyncExecution.IsInitialized)
+            if (!_asyncExecution.IsInitialized)
             {
                 return ResultCode.AsyncExecutionNotInitialized;
             }
 
-            if (AsyncExecution.IsRunning)
+            if (_asyncExecution.IsRunning)
             {
-                AsyncExecution.Cancel();
+                _asyncExecution.Cancel();
             }
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // HasDone() -> b8
         public ResultCode HasDone(ServiceCtx context)
         {
-            if (!AsyncExecution.IsInitialized)
+            if (!_asyncExecution.IsInitialized)
             {
                 return ResultCode.AsyncExecutionNotInitialized;
             }
 
-            context.ResponseData.Write(AsyncExecution.SystemEvent.ReadableEvent.IsSignaled());
+            context.ResponseData.Write(_asyncExecution.SystemEvent.ReadableEvent.IsSignaled());
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // GetResult()
         public ResultCode GetResult(ServiceCtx context)
         {
-            if (!AsyncExecution.IsInitialized)
+            if (!_asyncExecution.IsInitialized)
             {
                 return ResultCode.AsyncExecutionNotInitialized;
             }
 
-            if (!AsyncExecution.SystemEvent.ReadableEvent.IsSignaled())
+            if (!_asyncExecution.SystemEvent.ReadableEvent.IsSignaled())
             {
                 return ResultCode.Unknown41;
             }

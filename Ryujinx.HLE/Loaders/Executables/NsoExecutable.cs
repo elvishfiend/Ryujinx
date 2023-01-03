@@ -1,7 +1,7 @@
-using LibHac.Common.FixedArrays;
+using LibHac.Common;
 using LibHac.Fs;
+using LibHac.FsSystem;
 using LibHac.Loader;
-using LibHac.Tools.FsSystem;
 using Ryujinx.Common.Logging;
 using System;
 using System.Text;
@@ -9,32 +9,25 @@ using System.Text.RegularExpressions;
 
 namespace Ryujinx.HLE.Loaders.Executables
 {
-    partial class NsoExecutable : IExecutable
+    class NsoExecutable : IExecutable
     {
         public byte[] Program { get; }
-        public Span<byte> Text => Program.AsSpan((int)TextOffset, (int)TextSize);
-        public Span<byte> Ro   => Program.AsSpan((int)RoOffset,   (int)RoSize);
-        public Span<byte> Data => Program.AsSpan((int)DataOffset, (int)DataSize);
+        public Span<byte> Text => Program.AsSpan().Slice((int)TextOffset, (int)TextSize);
+        public Span<byte> Ro   => Program.AsSpan().Slice((int)RoOffset,   (int)RoSize);
+        public Span<byte> Data => Program.AsSpan().Slice((int)DataOffset, (int)DataSize);
 
         public uint TextOffset { get; }
-        public uint RoOffset   { get; }
+        public uint RoOffset { get; }
         public uint DataOffset { get; }
         public uint BssOffset => DataOffset + (uint)Data.Length;
 
         public uint TextSize { get; }
-        public uint RoSize   { get; }
+        public uint RoSize { get; }
         public uint DataSize { get; }
-        public uint BssSize  { get; }
+        public uint BssSize { get; }
 
-        public string        Name;
-        public Array32<byte> BuildId;
-
-        [GeneratedRegex(@"[a-z]:[\\/][ -~]{5,}\.nss", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-        private static partial Regex ModuleRegex();
-        [GeneratedRegex(@"sdk_version: ([0-9.]*)")]
-        private static partial Regex FsSdkRegex();
-        [GeneratedRegex(@"SDK MW[ -~]*")]
-        private static partial Regex SdkMwRegex();
+        public string   Name;
+        public Buffer32 BuildId;
 
         public NsoExecutable(IStorage inStorage, string name = null)
         {
@@ -65,7 +58,7 @@ namespace Ryujinx.HLE.Loaders.Executables
         {
             reader.GetSegmentSize(segmentType, out uint uncompressedSize).ThrowIfFailure();
 
-            var span = Program.AsSpan((int)offset, (int)uncompressedSize);
+            var span = Program.AsSpan().Slice((int)offset, (int)uncompressedSize);
 
             reader.ReadSegment(segmentType, span).ThrowIfFailure();
 
@@ -90,7 +83,7 @@ namespace Ryujinx.HLE.Loaders.Executables
 
             if (string.IsNullOrEmpty(modulePath))
             {
-                Match moduleMatch = ModuleRegex().Match(rawTextBuffer);
+                Match moduleMatch = Regex.Match(rawTextBuffer, @"[a-z]:[\\/][ -~]{5,}\.nss", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
                 if (moduleMatch.Success)
                 {
                     modulePath = moduleMatch.Value;
@@ -99,13 +92,13 @@ namespace Ryujinx.HLE.Loaders.Executables
 
             stringBuilder.AppendLine($"    Module: {modulePath}");
 
-            Match fsSdkMatch = FsSdkRegex().Match(rawTextBuffer);
+            Match fsSdkMatch = Regex.Match(rawTextBuffer, @"sdk_version: ([0-9.]*)", RegexOptions.Compiled);
             if (fsSdkMatch.Success)
             {
                 stringBuilder.AppendLine($"    FS SDK Version: {fsSdkMatch.Value.Replace("sdk_version: ", "")}");
             }
 
-            MatchCollection sdkMwMatches = SdkMwRegex().Matches(rawTextBuffer);
+            MatchCollection sdkMwMatches = Regex.Matches(rawTextBuffer, @"SDK MW[ -~]*", RegexOptions.Compiled);
             if (sdkMwMatches.Count != 0)
             {
                 string libHeader  = "    SDK Libraries: ";

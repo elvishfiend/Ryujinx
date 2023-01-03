@@ -1,9 +1,27 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Renderer.Common;
 using Ryujinx.Audio.Renderer.Dsp.State;
 using Ryujinx.Common.Logging;
 using Ryujinx.Memory;
 using System;
+using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -18,43 +36,50 @@ namespace Ryujinx.Audio.Renderer.Dsp
     {
         private const int FixedPointPrecision = 15;
 
-        public struct WaveBufferInformation
+        public class WaveBufferInformation
         {
+            public Memory<VoiceUpdateState> State;
             public uint SourceSampleRate;
+            public SampleFormat SampleFormat;
             public float Pitch;
+            public DecodingBehaviour DecodingBehaviour;
+            public WaveBuffer[] WaveBuffers;
             public ulong ExtraParameter;
             public ulong ExtraParameterSize;
             public int ChannelIndex;
             public int ChannelCount;
-            public DecodingBehaviour DecodingBehaviour;
             public SampleRateConversionQuality SrcQuality;
-            public SampleFormat SampleFormat;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int GetPitchLimitBySrcQuality(SampleRateConversionQuality quality)
         {
-            return quality switch
+            switch (quality)
             {
-                SampleRateConversionQuality.Default or SampleRateConversionQuality.Low => 4,
-                SampleRateConversionQuality.High => 8,
-                _ => throw new ArgumentException(quality.ToString()),
-            };
+                case SampleRateConversionQuality.Default:
+                case SampleRateConversionQuality.Low:
+                    return 4;
+                case SampleRateConversionQuality.High:
+                    return 8;
+                default:
+                    throw new ArgumentException($"{quality}");
+            }
         }
 
-        public static void ProcessWaveBuffers(IVirtualMemoryManager memoryManager, Span<float> outputBuffer, ref WaveBufferInformation info, Span<WaveBuffer> wavebuffers, ref VoiceUpdateState voiceState, uint targetSampleRate, int sampleCount)
+        public static void ProcessWaveBuffers(IVirtualMemoryManager memoryManager, Span<float> outputBuffer, WaveBufferInformation info, uint targetSampleRate, int sampleCount)
         {
             const int tempBufferSize = 0x3F00;
 
-            Span<short> tempBuffer = stackalloc short[tempBufferSize];
+            ref VoiceUpdateState state = ref info.State.Span[0];
 
-            float sampleRateRatio = (float)info.SourceSampleRate / targetSampleRate * info.Pitch;
+            short[] tempBuffer = ArrayPool<short>.Shared.Rent(tempBufferSize);
 
-            float fraction = voiceState.Fraction;
-            int waveBufferIndex = (int)voiceState.WaveBufferIndex;
-            ulong playedSampleCount = voiceState.PlayedSampleCount;
-            int offset = voiceState.Offset;
-            uint waveBufferConsumed = voiceState.WaveBufferConsumed;
+            float sampleRateRatio = ((float)info.SourceSampleRate / targetSampleRate * info.Pitch);
+
+            float fraction = state.Fraction;
+            int waveBufferIndex = (int)state.WaveBufferIndex;
+            ulong playedSampleCount = state.PlayedSampleCount;
+            int offset = state.Offset;
+            uint waveBufferConsumed = state.WaveBufferConsumed;
 
             int pitchMaxLength = GetPitchLimitBySrcQuality(info.SrcQuality);
 
@@ -76,7 +101,7 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
                     if (!info.DecodingBehaviour.HasFlag(DecodingBehaviour.SkipPitchAndSampleRateConversion))
                     {
-                        voiceState.Pitch.AsSpan().Slice(0, pitchMaxLength).CopyTo(tempBuffer);
+                        state.Pitch.ToSpan().Slice(0, pitchMaxLength).CopyTo(tempBuffer.AsSpan());
                         tempBufferIndex += pitchMaxLength;
                     }
 
@@ -90,31 +115,33 @@ namespace Ryujinx.Audio.Renderer.Dsp
                     {
                         if (waveBufferIndex >= Constants.VoiceWaveBufferCount)
                         {
+                            Logger.Error?.Print(LogClass.AudioRenderer, $"Invalid WaveBuffer index {waveBufferIndex}");
+
                             waveBufferIndex = 0;
                             playedSampleCount = 0;
                         }
 
-                        if (!voiceState.IsWaveBufferValid[waveBufferIndex])
+                        if (!state.IsWaveBufferValid[waveBufferIndex])
                         {
                             isStarving = true;
                             break;
                         }
 
-                        ref WaveBuffer waveBuffer = ref wavebuffers[waveBufferIndex];
+                        ref WaveBuffer waveBuffer = ref info.WaveBuffers[waveBufferIndex];
 
                         if (offset == 0 && info.SampleFormat == SampleFormat.Adpcm && waveBuffer.Context != 0)
                         {
-                            voiceState.LoopContext = memoryManager.Read<AdpcmLoopContext>(waveBuffer.Context);
+                            state.LoopContext = memoryManager.Read<AdpcmLoopContext>(waveBuffer.Context);
                         }
 
-                        Span<short> tempSpan = tempBuffer.Slice(tempBufferIndex + y);
+                        Span<short> tempSpan = tempBuffer.AsSpan().Slice(tempBufferIndex + y);
 
                         int decodedSampleCount = -1;
 
                         int targetSampleStartOffset;
                         int targetSampleEndOffset;
 
-                        if (voiceState.LoopCount > 0 && waveBuffer.LoopStartSampleOffset != 0 && waveBuffer.LoopEndSampleOffset != 0 && waveBuffer.LoopStartSampleOffset <= waveBuffer.LoopEndSampleOffset)
+                        if (state.LoopCount > 0 && waveBuffer.LoopStartSampleOffset != 0 && waveBuffer.LoopEndSampleOffset != 0 && waveBuffer.LoopStartSampleOffset <= waveBuffer.LoopEndSampleOffset)
                         {
                             targetSampleStartOffset = (int)waveBuffer.LoopStartSampleOffset;
                             targetSampleEndOffset = (int)waveBuffer.LoopEndSampleOffset;
@@ -139,7 +166,7 @@ namespace Ryujinx.Audio.Renderer.Dsp
                                 }
 
                                 ReadOnlySpan<short> coefficients = MemoryMarshal.Cast<byte, short>(memoryManager.GetSpan(info.ExtraParameter, (int)info.ExtraParameterSize));
-                                decodedSampleCount = AdpcmHelper.Decode(tempSpan, waveBufferAdpcm, targetSampleStartOffset, targetSampleEndOffset, offset, sampleCountToDecode - y, coefficients, ref voiceState.LoopContext);
+                                decodedSampleCount = AdpcmHelper.Decode(tempSpan, waveBufferAdpcm, targetSampleStartOffset, targetSampleEndOffset, offset, sampleCountToDecode - y, coefficients, ref state.LoopContext);
                                 break;
                             case SampleFormat.PcmInt16:
                                 ReadOnlySpan<short> waveBufferPcm16 = ReadOnlySpan<short>.Empty;
@@ -168,7 +195,7 @@ namespace Ryujinx.Audio.Renderer.Dsp
                                 decodedSampleCount = PcmHelper.Decode(tempSpan, waveBufferPcmFloat, targetSampleStartOffset, targetSampleEndOffset, info.ChannelIndex, info.ChannelCount);
                                 break;
                             default:
-                                Logger.Error?.Print(LogClass.AudioRenderer, $"Unsupported sample format " + info.SampleFormat);
+                                Logger.Warning?.Print(LogClass.AudioRenderer, $"Unsupported sample format {info.SampleFormat}");
                                 break;
                         }
 
@@ -176,9 +203,9 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
                         if (decodedSampleCount < 0)
                         {
-                            Logger.Warning?.Print(LogClass.AudioRenderer, "Decoding failed, skipping WaveBuffer");
+                            Logger.Warning?.Print(LogClass.AudioRenderer, $"Decoding failed, skipping WaveBuffer");
 
-                            voiceState.MarkEndOfBufferWaveBufferProcessing(ref waveBuffer, ref waveBufferIndex, ref waveBufferConsumed, ref playedSampleCount);
+                            state.MarkEndOfBufferWaveBufferProcessing(ref waveBuffer, ref waveBufferIndex, ref waveBufferConsumed, ref playedSampleCount);
                             decodedSampleCount = 0;
                         }
 
@@ -192,13 +219,13 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
                             if (waveBuffer.Looping)
                             {
-                                voiceState.LoopCount++;
+                                state.LoopCount++;
 
                                 if (waveBuffer.LoopCount >= 0)
                                 {
-                                    if (decodedSampleCount == 0 || voiceState.LoopCount > waveBuffer.LoopCount)
+                                    if (decodedSampleCount == 0 || state.LoopCount > waveBuffer.LoopCount)
                                     {
-                                        voiceState.MarkEndOfBufferWaveBufferProcessing(ref waveBuffer, ref waveBufferIndex, ref waveBufferConsumed, ref playedSampleCount);
+                                        state.MarkEndOfBufferWaveBufferProcessing(ref waveBuffer, ref waveBufferIndex, ref waveBufferConsumed, ref playedSampleCount);
                                     }
                                 }
 
@@ -215,12 +242,13 @@ namespace Ryujinx.Audio.Renderer.Dsp
                             }
                             else
                             {
-                                voiceState.MarkEndOfBufferWaveBufferProcessing(ref waveBuffer, ref waveBufferIndex, ref waveBufferConsumed, ref playedSampleCount);
+                                state.MarkEndOfBufferWaveBufferProcessing(ref waveBuffer, ref waveBufferIndex, ref waveBufferConsumed, ref playedSampleCount);
                             }
                         }
                     }
 
-                    Span<int> outputSpanInt = MemoryMarshal.Cast<float, int>(outputBuffer.Slice(i));
+                    Span<float> outputSpan = outputBuffer.Slice(i);
+                    Span<int> outputSpanInt = MemoryMarshal.Cast<float, int>(outputSpan);
 
                     if (info.DecodingBehaviour.HasFlag(DecodingBehaviour.SkipPitchAndSampleRateConversion))
                     {
@@ -231,7 +259,7 @@ namespace Ryujinx.Audio.Renderer.Dsp
                     }
                     else
                     {
-                        Span<short> tempSpan = tempBuffer.Slice(tempBufferIndex + y);
+                        Span<short> tempSpan = tempBuffer.AsSpan().Slice(tempBufferIndex + y);
 
                         tempSpan.Slice(0, sampleCountToDecode - y).Fill(0);
 
@@ -239,7 +267,7 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
                         ResamplerHelper.Resample(outputBuffer, tempBuffer, sampleRateRatio, ref fraction, sampleCountToProcess, info.SrcQuality, y != sourceSampleCountToProcess || info.Pitch != 1.0f);
 
-                        tempBuffer.Slice(sampleCountToDecode, pitchMaxLength).CopyTo(voiceState.Pitch.AsSpan());
+                        tempBuffer.AsSpan().Slice(sampleCountToDecode, pitchMaxLength).CopyTo(state.Pitch.ToSpan());
                     }
 
                     i += sampleCountToProcess;
@@ -247,15 +275,16 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
                 Debug.Assert(sourceSampleCountToProcess == i || !isStarving);
 
-                voiceState.WaveBufferConsumed = waveBufferConsumed;
-                voiceState.Offset = offset;
-                voiceState.PlayedSampleCount = playedSampleCount;
-                voiceState.WaveBufferIndex = (uint)waveBufferIndex;
-                voiceState.Fraction = fraction;
+                state.WaveBufferConsumed = waveBufferConsumed;
+                state.Offset = offset;
+                state.PlayedSampleCount = playedSampleCount;
+                state.WaveBufferIndex = (uint)waveBufferIndex;
+                state.Fraction = fraction;
             }
+
+            ArrayPool<short>.Shared.Return(tempBuffer);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ToFloatAvx(Span<float> output, ReadOnlySpan<int> input, int sampleCount)
         {
             ReadOnlySpan<Vector256<int>> inputVec = MemoryMarshal.Cast<int, Vector256<int>>(input);
@@ -274,7 +303,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ToFloatSse2(Span<float> output, ReadOnlySpan<int> input, int sampleCount)
         {
             ReadOnlySpan<Vector128<int>> inputVec = MemoryMarshal.Cast<int, Vector128<int>>(input);
@@ -293,7 +321,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ToFloatAdvSimd(Span<float> output, ReadOnlySpan<int> input, int sampleCount)
         {
             ReadOnlySpan<Vector128<int>> inputVec = MemoryMarshal.Cast<int, Vector128<int>>(input);
@@ -321,7 +348,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ToFloat(Span<float> output, ReadOnlySpan<int> input, int sampleCount)
         {
             if (Avx.IsSupported)
@@ -342,7 +368,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ToIntAvx(Span<int> output, ReadOnlySpan<float> input, int sampleCount)
         {
             ReadOnlySpan<Vector256<float>> inputVec = MemoryMarshal.Cast<float, Vector256<float>>(input);
@@ -361,7 +386,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ToIntSse2(Span<int> output, ReadOnlySpan<float> input, int sampleCount)
         {
             ReadOnlySpan<Vector128<float>> inputVec = MemoryMarshal.Cast<float, Vector128<float>>(input);
@@ -380,7 +404,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ToIntAdvSimd(Span<int> output, ReadOnlySpan<float> input, int sampleCount)
         {
             ReadOnlySpan<Vector128<float>> inputVec = MemoryMarshal.Cast<float, Vector128<float>>(input);
@@ -408,7 +431,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ToInt(Span<int> output, ReadOnlySpan<float> input, int sampleCount)
         {
             if (Avx.IsSupported)
@@ -426,40 +448,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
             else
             {
                 ToIntSlow(output, input, sampleCount);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void RemapLegacyChannelEffectMappingToChannelResourceMapping(bool isSupported, Span<ushort> bufferIndices)
-        {
-            if (!isSupported && bufferIndices.Length == 6)
-            {
-                ushort backLeft = bufferIndices[2];
-                ushort backRight = bufferIndices[3];
-                ushort frontCenter = bufferIndices[4];
-                ushort lowFrequency = bufferIndices[5];
-
-                bufferIndices[2] = frontCenter;
-                bufferIndices[3] = lowFrequency;
-                bufferIndices[4] = backLeft;
-                bufferIndices[5] = backRight;
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void RemapChannelResourceMappingToLegacy(bool isSupported, Span<ushort> bufferIndices)
-        {
-            if (isSupported && bufferIndices.Length == 6)
-            {
-                ushort frontCenter = bufferIndices[2];
-                ushort lowFrequency = bufferIndices[3];
-                ushort backLeft = bufferIndices[4];
-                ushort backRight = bufferIndices[5];
-
-                bufferIndices[2] = backLeft;
-                bufferIndices[3] = backRight;
-                bufferIndices[4] = frontCenter;
-                bufferIndices[5] = lowFrequency;
             }
         }
     }

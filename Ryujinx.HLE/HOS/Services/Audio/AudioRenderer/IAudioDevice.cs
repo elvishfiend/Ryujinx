@@ -12,7 +12,6 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
         uint GetActiveChannelCount();
         KEvent QueryAudioDeviceInputEvent();
         KEvent QueryAudioDeviceOutputEvent();
-        string GetActiveAudioOutputDeviceName();
-        string[] ListAudioOutputDeviceName();
+        ResultCode GetAudioSystemMasterVolumeSetting(string name,  out float systemMasterVolume);
     }
 }

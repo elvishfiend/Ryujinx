@@ -1,6 +1,6 @@
 namespace ARMeilleure.IntermediateRepresentation
 {
-    enum Instruction : ushort
+    enum Instruction
     {
         Add,
         BitwiseAnd,
@@ -26,7 +26,6 @@ namespace ARMeilleure.IntermediateRepresentation
         Load16,
         Load8,
         LoadArgument,
-        MemoryBarrier,
         Multiply,
         Multiply64HighSI,
         Multiply64HighUI,
@@ -64,7 +63,6 @@ namespace ARMeilleure.IntermediateRepresentation
         Extended,
         Fill,
         LoadFromContext,
-        Phi,
         Spill,
         SpillArg,
         StoreToContext

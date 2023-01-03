@@ -22,8 +22,8 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
 
         private struct SchedulingState
         {
-            public volatile bool NeedsScheduling;
-            public volatile KThread SelectedThread;
+            public bool NeedsScheduling;
+            public KThread SelectedThread;
         }
 
         private SchedulingState _state;
@@ -36,7 +36,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
         private readonly KThread _idleThread;
 
         public KThread PreviousThread => _previousThread;
-        public KThread CurrentThread => _currentThread;
         public long LastContextSwitchTime { get; private set; }
         public long TotalIdleTimeTicks => _idleThread.TotalTimeRunning;
 
@@ -87,26 +86,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
             for (int core = 0; core < CpuCoresCount; core++)
             {
                 KThread thread = context.PriorityQueue.ScheduledThreads(core).FirstOrDefault();
-
-                if (thread != null &&
-                    thread.Owner != null &&
-                    thread.Owner.PinnedThreads[core] != null &&
-                    thread.Owner.PinnedThreads[core] != thread)
-                {
-                    KThread candidate = thread.Owner.PinnedThreads[core];
-
-                    if (candidate.KernelWaitersCount == 0 && !thread.Owner.IsExceptionUserThread(candidate))
-                    {
-                        if (candidate.SchedFlags == ThreadSchedState.Running)
-                        {
-                            thread = candidate;
-                        }
-                        else
-                        {
-                            thread = null;
-                        }
-                    }
-                }
 
                 scheduledCoresMask |= context.Schedulers[core].SelectThread(thread);
             }
@@ -370,29 +349,31 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
 
             nextThread ??= _idleThread;
 
-            if (currentThread != nextThread)
+            if (currentThread == nextThread)
             {
-                long previousTicks = LastContextSwitchTime;
-                long currentTicks = PerformanceCounter.ElapsedTicks;
-                long ticksDelta = currentTicks - previousTicks;
+                return;
+            }
 
-                currentThread.AddCpuTime(ticksDelta);
+            long previousTicks = LastContextSwitchTime;
+            long currentTicks = PerformanceCounter.ElapsedTicks;
+            long ticksDelta = currentTicks - previousTicks;
 
-                if (currentProcess != null)
-                {
-                    currentProcess.AddCpuTime(ticksDelta);
-                }
+            currentThread.AddCpuTime(ticksDelta);
 
-                LastContextSwitchTime = currentTicks;
+            if (currentProcess != null)
+            {
+                currentProcess.AddCpuTime(ticksDelta);
+            }
 
-                if (currentProcess != null)
-                {
-                    _previousThread = !currentThread.TerminationRequested && currentThread.ActiveCore == _coreId ? currentThread : null;
-                }
-                else if (currentThread == _idleThread)
-                {
-                    _previousThread = null;
-                }
+            LastContextSwitchTime = currentTicks;
+
+            if (currentProcess != null)
+            {
+                _previousThread = !currentThread.TerminationRequested && currentThread.ActiveCore == _coreId ? currentThread : null;
+            }
+            else if (currentThread == _idleThread)
+            {
+                _previousThread = null;
             }
 
             if (nextThread.CurrentCore != _coreId)
@@ -488,11 +469,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
         {
             KThread currentThread = KernelStatic.GetCurrentThread();
 
-            if (!currentThread.IsSchedulable)
-            {
-                return;
-            }
-
             context.CriticalSection.Enter();
 
             if (currentThread.SchedFlags != ThreadSchedState.Running)
@@ -514,11 +490,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
         public static void YieldWithLoadBalancing(KernelContext context)
         {
             KThread currentThread = KernelStatic.GetCurrentThread();
-
-            if (!currentThread.IsSchedulable)
-            {
-                return;
-            }
 
             context.CriticalSection.Enter();
 
@@ -578,11 +549,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
         public static void YieldToAnyThread(KernelContext context)
         {
             KThread currentThread = KernelStatic.GetCurrentThread();
-
-            if (!currentThread.IsSchedulable)
-            {
-                return;
-            }
 
             context.CriticalSection.Enter();
 

@@ -1,4 +1,5 @@
 ﻿using Ryujinx.Common.Logging;
+using Ryujinx.HLE.HOS.Kernel;
 using Ryujinx.HLE.HOS.Kernel.Threading;
 using Ryujinx.HLE.HOS.Services.SurfaceFlinger.Types;
 using System;
@@ -39,7 +40,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
         private KEvent _waitBufferFreeEvent;
         private KEvent _frameAvailableEvent;
 
-        public ulong Owner { get; }
+        public long Owner { get; }
 
         public bool Active { get; private set; }
 
@@ -47,7 +48,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
 
         public event Action BufferQueued;
 
-        public BufferQueueCore(Switch device, ulong pid)
+        public BufferQueueCore(Switch device, long pid)
         {
             Slots                    = new BufferSlotArray();
             IsAbandoned              = false;
@@ -240,7 +241,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
         {
             BufferSlot slot = Slots[item.Slot];
 
-            // TODO: Check this. On Android, this checks the "handle". I assume NvMapHandle is the handle, but it might not be.
+            // TODO: Check this. On Android, this checks the "handle". I assume NvMapHandle is the handle, but it might not be. 
             return !slot.GraphicBuffer.IsNull && slot.GraphicBuffer.Object.Buffer.Surfaces[0].NvMapHandle == item.GraphicBuffer.Object.Buffer.Surfaces[0].NvMapHandle;
         }
 

@@ -21,7 +21,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             _impl = impl;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // OpenAudioRenderer(nn::audio::detail::AudioRendererParameterInternal parameter, u64 workBufferSize, nn::applet::AppletResourceUserId appletResourceId, pid, handle<copy> workBuffer, handle<copy> processHandle)
         // -> object<nn::audio::detail::IAudioRenderer>
         public ResultCode OpenAudioRenderer(ServiceCtx context)
@@ -34,14 +34,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             KTransferMemory workBufferTransferMemory = context.Process.HandleTable.GetObject<KTransferMemory>(transferMemoryHandle);
             uint processHandle = (uint)context.Request.HandleDesc.ToCopy[1];
 
-            ResultCode result = _impl.OpenAudioRenderer(
-                context,
-                out IAudioRenderer renderer,
-                ref parameter,
-                workBufferSize,
-                appletResourceUserId,
-                workBufferTransferMemory,
-                processHandle);
+            ResultCode result = _impl.OpenAudioRenderer(context, out IAudioRenderer renderer, ref parameter, workBufferSize, appletResourceUserId, workBufferTransferMemory, processHandle);
 
             if (result == ResultCode.Success)
             {
@@ -54,7 +47,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             return result;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetWorkBufferSize(nn::audio::detail::AudioRendererParameterInternal parameter) -> u64 workBufferSize
         public ResultCode GetAudioRendererWorkBufferSize(ServiceCtx context)
         {
@@ -80,7 +73,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             }
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // GetAudioDeviceService(nn::applet::AppletResourceUserId) -> object<nn::audio::detail::IAudioDevice>
         public ResultCode GetAudioDeviceService(ServiceCtx context)
         {
@@ -96,7 +89,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             return result;
         }
 
-        [CommandHipc(4)] // 4.0.0+
+        [Command(4)] // 4.0.0+
         // GetAudioDeviceServiceWithRevisionInfo(s32 revision, nn::applet::AppletResourceUserId appletResourceId) -> object<nn::audio::detail::IAudioDevice>
         public ResultCode GetAudioDeviceServiceWithRevisionInfo(ServiceCtx context)
         {

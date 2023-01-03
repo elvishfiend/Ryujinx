@@ -7,7 +7,7 @@ using System.Buffers;
 
 namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
 {
-    class AudioRendererServer : DisposableIpcService
+    class AudioRendererServer : IpcService, IDisposable
     {
         private IAudioRenderer _impl;
 
@@ -16,7 +16,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             _impl = impl;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetSampleRate() -> u32
         public ResultCode GetSampleRate(ServiceCtx context)
         {
@@ -25,7 +25,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return ResultCode.Success;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetSampleCount() -> u32
         public ResultCode GetSampleCount(ServiceCtx context)
         {
@@ -34,7 +34,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return ResultCode.Success;
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // GetMixBufferCount() -> u32
         public ResultCode GetMixBufferCount(ServiceCtx context)
         {
@@ -43,7 +43,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return ResultCode.Success;
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // GetState() -> u32
         public ResultCode GetState(ServiceCtx context)
         {
@@ -52,21 +52,21 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return ResultCode.Success;
         }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // RequestUpdate(buffer<nn::audio::detail::AudioRendererUpdateDataHeader, 5> input)
         // -> (buffer<nn::audio::detail::AudioRendererUpdateDataHeader, 6> output, buffer<nn::audio::detail::AudioRendererUpdateDataHeader, 6> performanceOutput)
         public ResultCode RequestUpdate(ServiceCtx context)
         {
-            ulong inputPosition = context.Request.SendBuff[0].Position;
-            ulong inputSize = context.Request.SendBuff[0].Size;
+            long inputPosition = context.Request.SendBuff[0].Position;
+            long inputSize = context.Request.SendBuff[0].Size;
 
-            ulong outputPosition = context.Request.ReceiveBuff[0].Position;
-            ulong outputSize = context.Request.ReceiveBuff[0].Size;
+            long outputPosition = context.Request.ReceiveBuff[0].Position;
+            long outputSize = context.Request.ReceiveBuff[0].Size;
 
-            ulong performanceOutputPosition = context.Request.ReceiveBuff[1].Position;
-            ulong performanceOutputSize = context.Request.ReceiveBuff[1].Size;
+            long performanceOutputPosition = context.Request.ReceiveBuff[1].Position;
+            long performanceOutputSize = context.Request.ReceiveBuff[1].Size;
 
-            ReadOnlyMemory<byte> input = context.Memory.GetSpan(inputPosition, (int)inputSize).ToArray();
+            ReadOnlyMemory<byte> input = context.Memory.GetSpan((ulong)inputPosition, (int)inputSize).ToArray();
 
             Memory<byte> output = new byte[outputSize];
             Memory<byte> performanceOutput = new byte[performanceOutputSize];
@@ -78,32 +78,32 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
 
             if (result == ResultCode.Success)
             {
-                context.Memory.Write(outputPosition, output.Span);
-                context.Memory.Write(performanceOutputPosition, performanceOutput.Span);
+                context.Memory.Write((ulong)outputPosition, output.Span);
+                context.Memory.Write((ulong)performanceOutputPosition, performanceOutput.Span);
             }
             else
             {
-                Logger.Error?.Print(LogClass.ServiceAudio, $"Error while processing renderer update: 0x{(int)result:X}");
+                Logger.Error?.Print(LogClass.ServiceAudio, $"Error while processing renderer update: 0x{result}");
             }
 
             return result;
         }
 
-        [CommandHipc(5)]
+        [Command(5)]
         // Start()
         public ResultCode Start(ServiceCtx context)
         {
             return _impl.Start();
         }
 
-        [CommandHipc(6)]
+        [Command(6)]
         // Stop()
         public ResultCode Stop(ServiceCtx context)
         {
             return _impl.Stop();
         }
 
-        [CommandHipc(7)]
+        [Command(7)]
         // QuerySystemEvent() -> handle<copy, event>
         public ResultCode QuerySystemEvent(ServiceCtx context)
         {
@@ -122,7 +122,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return result;
         }
 
-        [CommandHipc(8)]
+        [Command(8)]
         // SetAudioRendererRenderingTimeLimit(u32 limit)
         public ResultCode SetAudioRendererRenderingTimeLimit(ServiceCtx context)
         {
@@ -133,7 +133,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return ResultCode.Success;
         }
 
-        [CommandHipc(9)]
+        [Command(9)]
         // GetAudioRendererRenderingTimeLimit() -> u32 limit
         public ResultCode GetAudioRendererRenderingTimeLimit(ServiceCtx context)
         {
@@ -144,16 +144,16 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return ResultCode.Success;
         }
 
-        [CommandHipc(10)] // 3.0.0+
+        [Command(10)] // 3.0.0+
         //  RequestUpdateAuto(buffer<nn::audio::detail::AudioRendererUpdateDataHeader, 0x21> input)
         // -> (buffer<nn::audio::detail::AudioRendererUpdateDataHeader, 0x22> output, buffer<nn::audio::detail::AudioRendererUpdateDataHeader, 0x22> performanceOutput)
         public ResultCode RequestUpdateAuto(ServiceCtx context)
         {
-            (ulong inputPosition, ulong inputSize) = context.Request.GetBufferType0x21();
-            (ulong outputPosition, ulong outputSize) = context.Request.GetBufferType0x22(0);
-            (ulong performanceOutputPosition, ulong performanceOutputSize) = context.Request.GetBufferType0x22(1);
+            (long inputPosition, long inputSize) = context.Request.GetBufferType0x21();
+            (long outputPosition, long outputSize) = context.Request.GetBufferType0x22(0);
+            (long performanceOutputPosition, long performanceOutputSize) = context.Request.GetBufferType0x22(1);
 
-            ReadOnlyMemory<byte> input = context.Memory.GetSpan(inputPosition, (int)inputSize).ToArray();
+            ReadOnlyMemory<byte> input = context.Memory.GetSpan((ulong)inputPosition, (int)inputSize).ToArray();
 
             Memory<byte> output = new byte[outputSize];
             Memory<byte> performanceOutput = new byte[performanceOutputSize];
@@ -165,45 +165,21 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
 
             if (result == ResultCode.Success)
             {
-                context.Memory.Write(outputPosition, output.Span);
-                context.Memory.Write(performanceOutputPosition, performanceOutput.Span);
+                context.Memory.Write((ulong)outputPosition, output.Span);
+                context.Memory.Write((ulong)performanceOutputPosition, performanceOutput.Span);
             }
 
             return result;
         }
 
-        [CommandHipc(11)] // 3.0.0+
-        // ExecuteAudioRendererRendering()
-        public ResultCode ExecuteAudioRendererRendering(ServiceCtx context)
+        public void Dispose()
         {
-            return _impl.ExecuteAudioRendererRendering();
+            Dispose(true);
         }
 
-        [CommandHipc(12)] // 15.0.0+
-        // SetVoiceDropParameter(f32 voiceDropParameter)
-        public ResultCode SetVoiceDropParameter(ServiceCtx context)
+        protected virtual void Dispose(bool disposing)
         {
-            float voiceDropParameter = context.RequestData.ReadSingle();
-
-            _impl.SetVoiceDropParameter(voiceDropParameter);
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(13)] // 15.0.0+
-        // GetVoiceDropParameter() -> f32 voiceDropParameter
-        public ResultCode GetVoiceDropParameter(ServiceCtx context)
-        {
-            float voiceDropParameter = _impl.GetVoiceDropParameter();
-
-            context.ResponseData.Write(voiceDropParameter);
-
-            return ResultCode.Success;
-        }
-
-        protected override void Dispose(bool isDisposing)
-        {
-            if (isDisposing)
+            if (disposing)
             {
                 _impl.Dispose();
             }

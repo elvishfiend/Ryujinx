@@ -21,16 +21,16 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             _impl = impl;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // ListAudioOuts() -> (u32, buffer<bytes, 6>)
         public ResultCode ListAudioOuts(ServiceCtx context)
         {
             string[] deviceNames = _impl.ListAudioOuts();
 
-            ulong position = context.Request.ReceiveBuff[0].Position;
-            ulong size = context.Request.ReceiveBuff[0].Size;
+            long position = context.Request.ReceiveBuff[0].Position;
+            long size = context.Request.ReceiveBuff[0].Size;
 
-            ulong basePosition = position;
+            long basePosition = position;
 
             int count = 0;
 
@@ -38,15 +38,15 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             {
                 byte[] buffer = Encoding.ASCII.GetBytes(name);
 
-                if ((position - basePosition) + (ulong)buffer.Length > size)
+                if ((position - basePosition) + buffer.Length > size)
                 {
                     Logger.Error?.Print(LogClass.ServiceAudio, $"Output buffer size {size} too small!");
 
                     break;
                 }
 
-                context.Memory.Write(position, buffer);
-                MemoryHelper.FillWithZeros(context.Memory, position + (ulong)buffer.Length, AudioOutNameSize - buffer.Length);
+                context.Memory.Write((ulong)position, buffer);
+                MemoryHelper.FillWithZeros(context.Memory, position + buffer.Length, AudioOutNameSize - buffer.Length);
 
                 position += AudioOutNameSize;
                 count++;
@@ -57,7 +57,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             return ResultCode.Success;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // OpenAudioOut(AudioOutInputConfiguration input_config, nn::applet::AppletResourceUserId, pid, handle<copy, process> process_handle, buffer<bytes, 5> name_in)
         // -> (AudioOutInputConfiguration output_config, object<nn::audio::detail::IAudioOut>, buffer<bytes, 6> name_out)
         public ResultCode OpenAudioOut(ServiceCtx context)
@@ -65,17 +65,17 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             AudioInputConfiguration inputConfiguration = context.RequestData.ReadStruct<AudioInputConfiguration>();
             ulong appletResourceUserId = context.RequestData.ReadUInt64();
 
-            ulong deviceNameInputPosition = context.Request.SendBuff[0].Position;
-            ulong deviceNameInputSize = context.Request.SendBuff[0].Size;
+            long deviceNameInputPosition = context.Request.SendBuff[0].Position;
+            long deviceNameInputSize = context.Request.SendBuff[0].Size;
 
-            ulong deviceNameOutputPosition = context.Request.ReceiveBuff[0].Position;
-            ulong deviceNameOutputSize = context.Request.ReceiveBuff[0].Size;
+            long deviceNameOutputPosition = context.Request.ReceiveBuff[0].Position;
+            long deviceNameOutputSize = context.Request.ReceiveBuff[0].Size;
 
             uint processHandle = (uint)context.Request.HandleDesc.ToCopy[0];
 
-            string inputDeviceName = MemoryHelper.ReadAsciiString(context.Memory, deviceNameInputPosition, (long)deviceNameInputSize);
+            string inputDeviceName = MemoryHelper.ReadAsciiString(context.Memory, deviceNameInputPosition, deviceNameInputSize);
 
-            ResultCode resultCode = _impl.OpenAudioOut(context, out string outputDeviceName, out AudioOutputConfiguration outputConfiguration, out IAudioOut obj, inputDeviceName, ref inputConfiguration, appletResourceUserId, processHandle, context.Device.Configuration.AudioVolume);
+            ResultCode resultCode = _impl.OpenAudioOut(context, out string outputDeviceName, out AudioOutputConfiguration outputConfiguration, out IAudioOut obj, inputDeviceName, ref inputConfiguration, appletResourceUserId, processHandle);
 
             if (resultCode == ResultCode.Success)
             {
@@ -83,8 +83,8 @@ namespace Ryujinx.HLE.HOS.Services.Audio
 
                 byte[] outputDeviceNameRaw = Encoding.ASCII.GetBytes(outputDeviceName);
 
-                context.Memory.Write(deviceNameOutputPosition, outputDeviceNameRaw);
-                MemoryHelper.FillWithZeros(context.Memory, deviceNameOutputPosition + (ulong)outputDeviceNameRaw.Length, AudioOutNameSize - outputDeviceNameRaw.Length);
+                context.Memory.Write((ulong)deviceNameOutputPosition, outputDeviceNameRaw);
+                MemoryHelper.FillWithZeros(context.Memory, deviceNameOutputPosition + outputDeviceNameRaw.Length, AudioOutNameSize - outputDeviceNameRaw.Length);
 
                 MakeObject(context, new AudioOutServer(obj));
             }
@@ -92,15 +92,15 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             return resultCode;
         }
 
-        [CommandHipc(2)] // 3.0.0+
+        [Command(2)] // 3.0.0+
         // ListAudioOutsAuto() -> (u32, buffer<bytes, 0x22>)
         public ResultCode ListAudioOutsAuto(ServiceCtx context)
         {
             string[] deviceNames = _impl.ListAudioOuts();
 
-            (ulong position, ulong size) = context.Request.GetBufferType0x22();
+            (long position, long size) = context.Request.GetBufferType0x22();
 
-            ulong basePosition = position;
+            long basePosition = position;
 
             int count = 0;
 
@@ -108,15 +108,15 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             {
                 byte[] buffer = Encoding.ASCII.GetBytes(name);
 
-                if ((position - basePosition) + (ulong)buffer.Length > size)
+                if ((position - basePosition) + buffer.Length > size)
                 {
                     Logger.Error?.Print(LogClass.ServiceAudio, $"Output buffer size {size} too small!");
 
                     break;
                 }
 
-                context.Memory.Write(position, buffer);
-                MemoryHelper.FillWithZeros(context.Memory, position + (ulong)buffer.Length, AudioOutNameSize - buffer.Length);
+                context.Memory.Write((ulong)position, buffer);
+                MemoryHelper.FillWithZeros(context.Memory, position + buffer.Length, AudioOutNameSize - buffer.Length);
 
                 position += AudioOutNameSize;
                 count++;
@@ -127,7 +127,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             return ResultCode.Success;
         }
 
-        [CommandHipc(3)] // 3.0.0+
+        [Command(3)] // 3.0.0+
         // OpenAudioOut(AudioOutInputConfiguration input_config, nn::applet::AppletResourceUserId, pid, handle<copy, process> process_handle, buffer<bytes, 0x21> name_in)
         // -> (AudioOutInputConfiguration output_config, object<nn::audio::detail::IAudioOut>, buffer<bytes, 0x22> name_out)
         public ResultCode OpenAudioOutAuto(ServiceCtx context)
@@ -135,14 +135,14 @@ namespace Ryujinx.HLE.HOS.Services.Audio
             AudioInputConfiguration inputConfiguration = context.RequestData.ReadStruct<AudioInputConfiguration>();
             ulong appletResourceUserId = context.RequestData.ReadUInt64();
 
-            (ulong deviceNameInputPosition, ulong deviceNameInputSize) = context.Request.GetBufferType0x21();
-            (ulong deviceNameOutputPosition, ulong deviceNameOutputSize) = context.Request.GetBufferType0x22();
+            (long deviceNameInputPosition, long deviceNameInputSize) = context.Request.GetBufferType0x21();
+            (long deviceNameOutputPosition, long deviceNameOutputSize) = context.Request.GetBufferType0x22();
 
             uint processHandle = (uint)context.Request.HandleDesc.ToCopy[0];
 
-            string inputDeviceName = MemoryHelper.ReadAsciiString(context.Memory, deviceNameInputPosition, (long)deviceNameInputSize);
+            string inputDeviceName = MemoryHelper.ReadAsciiString(context.Memory, deviceNameInputPosition, deviceNameInputSize);
 
-            ResultCode resultCode = _impl.OpenAudioOut(context, out string outputDeviceName, out AudioOutputConfiguration outputConfiguration, out IAudioOut obj, inputDeviceName, ref inputConfiguration, appletResourceUserId, processHandle, context.Device.Configuration.AudioVolume);
+            ResultCode resultCode = _impl.OpenAudioOut(context, out string outputDeviceName, out AudioOutputConfiguration outputConfiguration, out IAudioOut obj, inputDeviceName, ref inputConfiguration, appletResourceUserId, processHandle);
 
             if (resultCode == ResultCode.Success)
             {
@@ -150,8 +150,8 @@ namespace Ryujinx.HLE.HOS.Services.Audio
 
                 byte[] outputDeviceNameRaw = Encoding.ASCII.GetBytes(outputDeviceName);
 
-                context.Memory.Write(deviceNameOutputPosition, outputDeviceNameRaw);
-                MemoryHelper.FillWithZeros(context.Memory, deviceNameOutputPosition + (ulong)outputDeviceNameRaw.Length, AudioOutNameSize - outputDeviceNameRaw.Length);
+                context.Memory.Write((ulong)deviceNameOutputPosition, outputDeviceNameRaw);
+                MemoryHelper.FillWithZeros(context.Memory, deviceNameOutputPosition + outputDeviceNameRaw.Length, AudioOutNameSize - outputDeviceNameRaw.Length);
 
                 MakeObject(context, new AudioOutServer(obj));
             }

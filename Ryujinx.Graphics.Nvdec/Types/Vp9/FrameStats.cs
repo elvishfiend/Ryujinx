@@ -16,6 +16,7 @@
         public uint FrameStatusBwdMvyCnt;
         public uint ErrorCtbPos;
         public uint ErrorSlicePos;
+        public uint Unknown34;
 #pragma warning restore CS0649
     }
 }

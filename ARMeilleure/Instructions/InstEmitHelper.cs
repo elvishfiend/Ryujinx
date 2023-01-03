@@ -4,12 +4,17 @@ using ARMeilleure.State;
 using ARMeilleure.Translation;
 using System;
 
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
     static class InstEmitHelper
     {
+        public static bool IsThumb(OpCode op)
+        {
+            return op is OpCodeT16;
+        }
+
         public static Operand GetExtendedM(ArmEmitterContext context, int rm, IntType type)
         {
             Operand value = GetIntOrZR(context, rm);
@@ -35,20 +40,6 @@ namespace ARMeilleure.Instructions
                 OpCode32 op = (OpCode32)context.CurrOp;
 
                 return Const((int)op.GetPc());
-            }
-            else
-            {
-                return Register(GetRegisterAlias(context.Mode, regIndex), RegisterType.Integer, OperandType.I32);
-            }
-        }
-
-        public static Operand GetIntA32AlignedPC(ArmEmitterContext context, int regIndex)
-        {
-            if (regIndex == RegisterAlias.Aarch32Pc)
-            {
-                OpCode32 op = (OpCode32)context.CurrOp;
-
-                return Const((int)(op.GetPc() & 0xfffffffc));
             }
             else
             {
@@ -181,7 +172,7 @@ namespace ARMeilleure.Instructions
 
             SetFlag(context, PState.TFlag, mode);
 
-            Operand addr = context.ConditionalSelect(mode, context.BitwiseAnd(pc, Const(~1)), context.BitwiseAnd(pc, Const(~3)));
+            Operand addr = context.ConditionalSelect(mode, pc, context.BitwiseAnd(pc, Const(~3)));
 
             InstEmitFlowHelper.EmitVirtualJump(context, addr, isReturn);
         }

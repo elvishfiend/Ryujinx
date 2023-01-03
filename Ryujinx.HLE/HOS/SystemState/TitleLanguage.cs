@@ -15,8 +15,7 @@
         Portuguese,
         Russian,
         Korean,
-        TraditionalChinese,
-        SimplifiedChinese,
-        BrazilianPortuguese
+        Taiwanese,
+        Chinese
     }
 }

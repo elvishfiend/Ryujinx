@@ -1,4 +1,3 @@
-using Ryujinx.Tests.Unicorn.Native.Const;
 using System;
 using System.Runtime.InteropServices;
 
@@ -6,9 +5,9 @@ namespace Ryujinx.Tests.Unicorn
 {
     public class UnicornException : Exception
     {
-        public readonly Error Error;
+        public readonly UnicornError Error;
 
-        internal UnicornException(Error error)
+        internal UnicornException(UnicornError error)
         {
             Error = error;
         }

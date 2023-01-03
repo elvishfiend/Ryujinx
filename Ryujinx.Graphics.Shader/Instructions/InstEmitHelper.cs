@@ -2,7 +2,6 @@ using Ryujinx.Graphics.Shader.Decoders;
 using Ryujinx.Graphics.Shader.IntermediateRepresentation;
 using Ryujinx.Graphics.Shader.Translation;
 using System;
-using System.Runtime.CompilerServices;
 
 using static Ryujinx.Graphics.Shader.IntermediateRepresentation.OperandHelper;
 
@@ -30,101 +29,180 @@ namespace Ryujinx.Graphics.Shader.Instructions
             return Register(3, RegisterType.Flag);
         }
 
-        public static Operand GetDest(int rd)
+        public static Operand GetDest(EmitterContext context)
         {
-            return Register(rd, RegisterType.Gpr);
+            return Register(((IOpCodeRd)context.CurrOp).Rd);
         }
 
-        public static Operand GetDest2(int rd)
+        public static Operand GetDest2(EmitterContext context)
         {
-            return Register(rd | 1, RegisterType.Gpr);
+            Register rd = ((IOpCodeRd)context.CurrOp).Rd;
+
+            return Register(rd.Index | 1, rd.Type);
         }
 
-        public static Operand GetSrcCbuf(EmitterContext context, int cbufSlot, int cbufOffset, bool isFP64 = false)
+        public static Operand GetSrcA(EmitterContext context, bool isFP64 = false)
         {
+            IOpCodeRa op = (IOpCodeRa)context.CurrOp;
+
             if (isFP64)
             {
-                return context.PackDouble2x32(
-                    Cbuf(cbufSlot, cbufOffset),
-                    Cbuf(cbufSlot, cbufOffset + 1));
+                return context.PackDouble2x32(Register(op.Ra.Index, op.Ra.Type), Register(op.Ra.Index | 1, op.Ra.Type));
             }
             else
             {
-                return Cbuf(cbufSlot, cbufOffset);
+                return Register(op.Ra);
             }
         }
 
-        public static Operand GetSrcImm(EmitterContext context, int imm, bool isFP64 = false)
+        public static Operand GetSrcB(EmitterContext context, FPType floatType)
+        {
+            if (floatType == FPType.FP32)
+            {
+                return GetSrcB(context);
+            }
+            else if (floatType == FPType.FP16)
+            {
+                int h = context.CurrOp.RawOpCode.Extract(41, 1);
+
+                return GetHalfUnpacked(context, GetSrcB(context), FPHalfSwizzle.FP16)[h];
+            }
+            else if (floatType == FPType.FP64)
+            {
+                return GetSrcB(context, true);
+            }
+
+            throw new ArgumentException($"Invalid floating point type \"{floatType}\".");
+        }
+
+        public static Operand GetSrcB(EmitterContext context, bool isFP64 = false)
         {
             if (isFP64)
             {
-                return context.PackDouble2x32(Const(0), Const(imm));
+                switch (context.CurrOp)
+                {
+                    case IOpCodeCbuf op:
+                        return context.PackDouble2x32(Cbuf(op.Slot, op.Offset), Cbuf(op.Slot, op.Offset + 1));
+
+                    case IOpCodeImmF op:
+                        return context.FP32ConvertToFP64(ConstF(op.Immediate));
+
+                    case IOpCodeReg op:
+                        return context.PackDouble2x32(Register(op.Rb.Index, op.Rb.Type), Register(op.Rb.Index | 1, op.Rb.Type));
+
+                    case IOpCodeRegCbuf op:
+                        return context.PackDouble2x32(Register(op.Rc.Index, op.Rc.Type), Register(op.Rc.Index | 1, op.Rc.Type));
+                }
             }
             else
             {
-                return Const(imm);
+                switch (context.CurrOp)
+                {
+                    case IOpCodeCbuf op:
+                        return Cbuf(op.Slot, op.Offset);
+
+                    case IOpCodeImm op:
+                        return Const(op.Immediate);
+
+                    case IOpCodeImmF op:
+                        return ConstF(op.Immediate);
+
+                    case IOpCodeReg op:
+                        return Register(op.Rb);
+
+                    case IOpCodeRegCbuf op:
+                        return Register(op.Rc);
+                }
             }
+
+            throw new InvalidOperationException($"Unexpected opcode type \"{context.CurrOp.GetType().Name}\".");
         }
 
-        public static Operand GetSrcReg(EmitterContext context, int reg, bool isFP64 = false)
+        public static Operand GetSrcC(EmitterContext context, bool isFP64 = false)
         {
             if (isFP64)
             {
-                return context.PackDouble2x32(Register(reg, RegisterType.Gpr), Register(reg | 1, RegisterType.Gpr));
+                switch (context.CurrOp)
+                {
+                    case IOpCodeRegCbuf op:
+                        return context.PackDouble2x32(Cbuf(op.Slot, op.Offset), Cbuf(op.Slot, op.Offset + 1));
+
+                    case IOpCodeRc op:
+                        return context.PackDouble2x32(Register(op.Rc.Index, op.Rc.Type), Register(op.Rc.Index | 1, op.Rc.Type));
+                }
             }
             else
             {
-                return Register(reg, RegisterType.Gpr);
+                switch (context.CurrOp)
+                {
+                    case IOpCodeRegCbuf op:
+                        return Cbuf(op.Slot, op.Offset);
+
+                    case IOpCodeRc op:
+                        return Register(op.Rc);
+                }
             }
+
+            throw new InvalidOperationException($"Unexpected opcode type \"{context.CurrOp.GetType().Name}\".");
         }
 
-        public static Operand[] GetHalfSrc(
-            EmitterContext context,
-            HalfSwizzle swizzle,
-            int ra,
-            bool negate,
-            bool absolute)
+        public static Operand[] GetHalfSrcA(EmitterContext context, bool isAdd = false)
         {
-            Operand[] operands = GetHalfUnpacked(context, GetSrcReg(context, ra), swizzle);
+            OpCode op = context.CurrOp;
 
-            return FPAbsNeg(context, operands, absolute, negate);
-        }
+            bool absoluteA = false, negateA = false;
 
-        public static Operand[] GetHalfSrc(
-            EmitterContext context,
-            HalfSwizzle swizzle,
-            int cbufSlot,
-            int cbufOffset,
-            bool negate,
-            bool absolute)
-        {
-            Operand[] operands = GetHalfUnpacked(context, GetSrcCbuf(context, cbufSlot, cbufOffset), swizzle);
-
-            return FPAbsNeg(context, operands, absolute, negate);
-        }
-
-        public static Operand[] GetHalfSrc(EmitterContext context, int immH0, int immH1)
-        {
-            ushort low = (ushort)(immH0 << 6);
-            ushort high = (ushort)(immH1 << 6);
-
-            return new Operand[]
+            if (op is OpCodeAluImm32 && isAdd)
             {
-                ConstF((float)Unsafe.As<ushort, Half>(ref low)),
-                ConstF((float)Unsafe.As<ushort, Half>(ref high))
-            };
+                negateA = op.RawOpCode.Extract(56);
+            }
+            else if (isAdd || op is IOpCodeCbuf || op is IOpCodeImm)
+            {
+                negateA   = op.RawOpCode.Extract(43);
+                absoluteA = op.RawOpCode.Extract(44);
+            }
+            else if (op is IOpCodeReg)
+            {
+                absoluteA = op.RawOpCode.Extract(44);
+            }
+
+            FPHalfSwizzle swizzle = (FPHalfSwizzle)op.RawOpCode.Extract(47, 2);
+
+            Operand[] operands = GetHalfUnpacked(context, GetSrcA(context), swizzle);
+
+            return FPAbsNeg(context, operands, absoluteA, negateA);
         }
 
-        public static Operand[] GetHalfSrc(EmitterContext context, int imm32)
+        public static Operand[] GetHalfSrcB(EmitterContext context, bool isMul = false)
         {
-            ushort low = (ushort)imm32;
-            ushort high = (ushort)(imm32 >> 16);
+            OpCode op = context.CurrOp;
 
-            return new Operand[]
+            FPHalfSwizzle swizzle = FPHalfSwizzle.FP16;
+
+            bool absoluteB = false, negateB = false;
+
+            if (op is IOpCodeReg)
             {
-                ConstF((float)Unsafe.As<ushort, Half>(ref low)),
-                ConstF((float)Unsafe.As<ushort, Half>(ref high))
-            };
+                swizzle = (FPHalfSwizzle)op.RawOpCode.Extract(28, 2);
+
+                absoluteB = op.RawOpCode.Extract(30);
+                negateB   = op.RawOpCode.Extract(31);
+            }
+            else if (op is IOpCodeCbuf)
+            {
+                swizzle = FPHalfSwizzle.FP32;
+
+                absoluteB = op.RawOpCode.Extract(54);
+
+                if (!isMul)
+                {
+                    negateB = op.RawOpCode.Extract(56);
+                }
+            }
+
+            Operand[] operands = GetHalfUnpacked(context, GetSrcB(context), swizzle);
+
+            return FPAbsNeg(context, operands, absoluteB, negateB);
         }
 
         public static Operand[] FPAbsNeg(EmitterContext context, Operand[] operands, bool abs, bool neg)
@@ -137,27 +215,27 @@ namespace Ryujinx.Graphics.Shader.Instructions
             return operands;
         }
 
-        public static Operand[] GetHalfUnpacked(EmitterContext context, Operand src, HalfSwizzle swizzle)
+        public static Operand[] GetHalfUnpacked(EmitterContext context, Operand src, FPHalfSwizzle swizzle)
         {
             switch (swizzle)
             {
-                case HalfSwizzle.F16:
+                case FPHalfSwizzle.FP16:
                     return new Operand[]
                     {
                         context.UnpackHalf2x16Low (src),
                         context.UnpackHalf2x16High(src)
                     };
 
-                case HalfSwizzle.F32: return new Operand[] { src, src };
+                case FPHalfSwizzle.FP32: return new Operand[] { src, src };
 
-                case HalfSwizzle.H0H0:
+                case FPHalfSwizzle.DupH0:
                     return new Operand[]
                     {
                         context.UnpackHalf2x16Low(src),
                         context.UnpackHalf2x16Low(src)
                     };
 
-                case HalfSwizzle.H1H1:
+                case FPHalfSwizzle.DupH1:
                     return new Operand[]
                     {
                         context.UnpackHalf2x16High(src),
@@ -168,24 +246,33 @@ namespace Ryujinx.Graphics.Shader.Instructions
             throw new ArgumentException($"Invalid swizzle \"{swizzle}\".");
         }
 
-        public static Operand GetHalfPacked(EmitterContext context, OFmt swizzle, Operand[] results, int rd)
+        public static Operand GetHalfPacked(EmitterContext context, Operand[] results)
         {
+            OpCode op = context.CurrOp;
+
+            FPHalfSwizzle swizzle = FPHalfSwizzle.FP16;
+
+            if (!(op is OpCodeAluImm32))
+            {
+                swizzle = (FPHalfSwizzle)context.CurrOp.RawOpCode.Extract(49, 2);
+            }
+
             switch (swizzle)
             {
-                case OFmt.F16: return context.PackHalf2x16(results[0], results[1]);
+                case FPHalfSwizzle.FP16: return context.PackHalf2x16(results[0], results[1]);
 
-                case OFmt.F32: return results[0];
+                case FPHalfSwizzle.FP32: return results[0];
 
-                case OFmt.MrgH0:
+                case FPHalfSwizzle.DupH0:
                 {
-                    Operand h1 = GetHalfDest(context, rd, isHigh: true);
+                    Operand h1 = GetHalfDest(context, isHigh: true);
 
                     return context.PackHalf2x16(results[0], h1);
                 }
 
-                case OFmt.MrgH1:
+                case FPHalfSwizzle.DupH1:
                 {
-                    Operand h0 = GetHalfDest(context, rd, isHigh: false);
+                    Operand h0 = GetHalfDest(context, isHigh: false);
 
                     return context.PackHalf2x16(h0, results[1]);
                 }
@@ -194,61 +281,30 @@ namespace Ryujinx.Graphics.Shader.Instructions
             throw new ArgumentException($"Invalid swizzle \"{swizzle}\".");
         }
 
-        public static Operand GetHalfDest(EmitterContext context, int rd, bool isHigh)
+        public static Operand GetHalfDest(EmitterContext context, bool isHigh)
         {
             if (isHigh)
             {
-                return context.UnpackHalf2x16High(GetDest(rd));
+                return context.UnpackHalf2x16High(GetDest(context));
             }
             else
             {
-                return context.UnpackHalf2x16Low(GetDest(rd));
+                return context.UnpackHalf2x16Low(GetDest(context));
             }
         }
 
-        public static Operand GetPredicate(EmitterContext context, int pred, bool not)
+        public static Operand GetPredicate39(EmitterContext context)
         {
-            Operand local = Register(pred, RegisterType.Predicate);
+            IOpCodePredicate39 op = (IOpCodePredicate39)context.CurrOp;
 
-            if (not)
+            Operand local = Register(op.Predicate39);
+
+            if (op.InvertP)
             {
                 local = context.BitwiseNot(local);
             }
 
             return local;
-        }
-
-        public static void SetDest(EmitterContext context, Operand value, int rd, bool isFP64)
-        {
-            if (isFP64)
-            {
-                context.Copy(GetDest(rd), context.UnpackDouble2x32Low(value));
-                context.Copy(GetDest2(rd), context.UnpackDouble2x32High(value));
-            }
-            else
-            {
-                context.Copy(GetDest(rd), value);
-            }
-        }
-
-        public static int Imm16ToSInt(int imm16)
-        {
-            return (short)imm16;
-        }
-
-        public static int Imm20ToFloat(int imm20)
-        {
-            return imm20 << 12;
-        }
-
-        public static int Imm20ToSInt(int imm20)
-        {
-            return (imm20 << 12) >> 12;
-        }
-
-        public static int Imm24ToSInt(int imm24)
-        {
-            return (imm24 << 8) >> 8;
         }
 
         public static Operand SignExtendTo32(EmitterContext context, Operand src, int srcBits)
@@ -258,7 +314,7 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
         public static Operand ZeroExtendTo32(EmitterContext context, Operand src, int srcBits)
         {
-            int mask = (int)(uint.MaxValue >> (32 - srcBits));
+            int mask = (int)(0xffffffffu >> (32 - srcBits));
 
             return context.BitwiseAnd(src, Const(mask));
         }

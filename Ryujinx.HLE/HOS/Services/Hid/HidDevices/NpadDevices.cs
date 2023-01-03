@@ -1,18 +1,16 @@
+using System;
+using System.Collections.Generic;
 using Ryujinx.Common;
 using Ryujinx.Common.Logging;
+using Ryujinx.Common.Memory;
 using Ryujinx.HLE.HOS.Kernel.Threading;
-using Ryujinx.HLE.HOS.Services.Hid.Types;
-using Ryujinx.HLE.HOS.Services.Hid.Types.SharedMemory.Common;
-using Ryujinx.HLE.HOS.Services.Hid.Types.SharedMemory.Npad;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 
 namespace Ryujinx.HLE.HOS.Services.Hid
 {
     public class NpadDevices : BaseDevice
     {
+        private const BatteryCharge DefaultBatteryCharge = BatteryCharge.Percent100;
+
         private const int NoMatchNotifyFrequencyMs = 2000;
         private int _activeCount;
         private long _lastNotifyTimestamp;
@@ -21,20 +19,10 @@ namespace Ryujinx.HLE.HOS.Services.Hid
         private ControllerType[] _configuredTypes;
         private KEvent[] _styleSetUpdateEvents;
         private bool[] _supportedPlayers;
-        private static VibrationValue _neutralVibrationValue = new VibrationValue
-        {
-            AmplitudeLow = 0f,
-            FrequencyLow = 160f,
-            AmplitudeHigh = 0f,
-            FrequencyHigh = 320f
-        };
 
         internal NpadJoyHoldType JoyHold { get; set; }
         internal bool SixAxisActive = false; // TODO: link to hidserver when implemented
         internal ControllerType SupportedStyleSets { get; set; }
-
-        public Dictionary<PlayerIndex, ConcurrentQueue<(VibrationValue, VibrationValue)>> RumbleQueues = new Dictionary<PlayerIndex, ConcurrentQueue<(VibrationValue, VibrationValue)>>();
-        public Dictionary<PlayerIndex, (VibrationValue, VibrationValue)> LastVibrationValues = new Dictionary<PlayerIndex, (VibrationValue, VibrationValue)>();
 
         public NpadDevices(Switch device, bool active = true) : base(device, active)
         {
@@ -98,7 +86,7 @@ namespace Ryujinx.HLE.HOS.Services.Hid
                     continue;
                 }
 
-                ControllerType currentType = (ControllerType)_device.Hid.SharedMemory.Npads[i].InternalState.StyleSet;
+                ControllerType currentType = _device.Hid.SharedMemory.Npads[i].Header.Type;
 
                 if (currentType != ControllerType.None && (npad & acceptedTypes) != 0 && _supportedPlayers[i])
                 {
@@ -147,24 +135,12 @@ namespace Ryujinx.HLE.HOS.Services.Hid
         {
             Remap();
 
-            Span<bool> updated = stackalloc bool[10];
+            UpdateAllEntries();
 
             // Update configured inputs
             for (int i = 0; i < states.Count; ++i)
             {
-                GamepadInput state = states[i];
-
-                updated[(int)state.PlayerId] = true;
-
-                UpdateInput(state);
-            }
-
-            for (int i = 0; i < updated.Length; i++)
-            {
-                if (!updated[i])
-                {
-                    UpdateDisconnectedInput((PlayerIndex)i);
-                }
+                UpdateInput(states[i]);
             }
         }
 
@@ -209,16 +185,16 @@ namespace Ryujinx.HLE.HOS.Services.Hid
 
         private void SetupNpad(PlayerIndex player, ControllerType type)
         {
-            ref NpadInternalState controller = ref _device.Hid.SharedMemory.Npads[(int)player].InternalState;
+            ref ShMemNpad controller = ref _device.Hid.SharedMemory.Npads[(int)player];
 
-            ControllerType oldType = (ControllerType)controller.StyleSet;
+            ControllerType oldType = controller.Header.Type;
 
             if (oldType == type)
             {
                 return; // Already configured
             }
 
-            controller = NpadInternalState.Create(); // Reset it
+            controller = new ShMemNpad(); // Zero it
 
             if (type == ControllerType.None)
             {
@@ -231,72 +207,69 @@ namespace Ryujinx.HLE.HOS.Services.Hid
             }
 
             // TODO: Allow customizing colors at config
-            controller.JoyAssignmentMode = NpadJoyAssignmentMode.Dual;
-            controller.FullKeyColor.FullKeyBody = (uint)NpadColor.BodyGray;
-            controller.FullKeyColor.FullKeyButtons = (uint)NpadColor.ButtonGray;
-            controller.JoyColor.LeftBody = (uint)NpadColor.BodyNeonBlue;
-            controller.JoyColor.LeftButtons = (uint)NpadColor.ButtonGray;
-            controller.JoyColor.RightBody = (uint)NpadColor.BodyNeonRed;
-            controller.JoyColor.RightButtons = (uint)NpadColor.ButtonGray;
+            NpadStateHeader defaultHeader = new NpadStateHeader
+            {
+                IsHalf             = false,
+                SingleColorBody    = NpadColor.BodyGray,
+                SingleColorButtons = NpadColor.ButtonGray,
+                LeftColorBody      = NpadColor.BodyNeonBlue,
+                LeftColorButtons   = NpadColor.ButtonGray,
+                RightColorBody     = NpadColor.BodyNeonRed,
+                RightColorButtons  = NpadColor.ButtonGray
+            };
 
-            controller.SystemProperties = NpadSystemProperties.IsPoweredJoyDual |
-                                          NpadSystemProperties.IsPoweredJoyLeft |
-                                          NpadSystemProperties.IsPoweredJoyRight;
+            controller.SystemProperties = NpadSystemProperties.PowerInfo0Connected |
+                                          NpadSystemProperties.PowerInfo1Connected |
+                                          NpadSystemProperties.PowerInfo2Connected;
 
-            controller.BatteryLevelJoyDual = NpadBatteryLevel.Percent100;
-            controller.BatteryLevelJoyLeft = NpadBatteryLevel.Percent100;
-            controller.BatteryLevelJoyRight = NpadBatteryLevel.Percent100;
+            controller.BatteryState.ToSpan().Fill(DefaultBatteryCharge);
 
             switch (type)
             {
                 case ControllerType.ProController:
-                    controller.StyleSet           = NpadStyleTag.FullKey;
-                    controller.DeviceType         = DeviceType.FullKey;
-                    controller.SystemProperties  |= NpadSystemProperties.IsAbxyButtonOriented |
-                                                    NpadSystemProperties.IsPlusAvailable      |
-                                                    NpadSystemProperties.IsMinusAvailable;
-                    controller.AppletFooterUiType = AppletFooterUiType.SwitchProController;
+                    defaultHeader.Type           = ControllerType.ProController;
+                    controller.DeviceType        = DeviceType.FullKey;
+                    controller.SystemProperties |= NpadSystemProperties.AbxyButtonOriented |
+                                                   NpadSystemProperties.PlusButtonCapability |
+                                                   NpadSystemProperties.MinusButtonCapability;
                     break;
                 case ControllerType.Handheld:
-                    controller.StyleSet           = NpadStyleTag.Handheld;
-                    controller.DeviceType         = DeviceType.HandheldLeft |
-                                                    DeviceType.HandheldRight;
-                    controller.SystemProperties  |= NpadSystemProperties.IsAbxyButtonOriented |
-                                                    NpadSystemProperties.IsPlusAvailable      |
-                                                    NpadSystemProperties.IsMinusAvailable;
-                    controller.AppletFooterUiType = AppletFooterUiType.HandheldJoyConLeftJoyConRight;
+                    defaultHeader.Type           = ControllerType.Handheld;
+                    controller.DeviceType        = DeviceType.HandheldLeft |
+                                                   DeviceType.HandheldRight;
+                    controller.SystemProperties |= NpadSystemProperties.AbxyButtonOriented |
+                                                   NpadSystemProperties.PlusButtonCapability |
+                                                   NpadSystemProperties.MinusButtonCapability;
                     break;
                 case ControllerType.JoyconPair:
-                    controller.StyleSet           = NpadStyleTag.JoyDual;
-                    controller.DeviceType         = DeviceType.JoyLeft |
-                                                    DeviceType.JoyRight;
-                    controller.SystemProperties  |= NpadSystemProperties.IsAbxyButtonOriented |
-                                                    NpadSystemProperties.IsPlusAvailable      |
-                                                    NpadSystemProperties.IsMinusAvailable;
-                    controller.AppletFooterUiType = _device.System.State.DockedMode ? AppletFooterUiType.JoyDual : AppletFooterUiType.HandheldJoyConLeftJoyConRight;
+                    defaultHeader.Type           = ControllerType.JoyconPair;
+                    controller.DeviceType        = DeviceType.JoyLeft |
+                                                   DeviceType.JoyRight;
+                    controller.SystemProperties |= NpadSystemProperties.AbxyButtonOriented |
+                                                   NpadSystemProperties.PlusButtonCapability |
+                                                   NpadSystemProperties.MinusButtonCapability;
                     break;
                 case ControllerType.JoyconLeft:
-                    controller.StyleSet           = NpadStyleTag.JoyLeft;
-                    controller.JoyAssignmentMode  = NpadJoyAssignmentMode.Single;
-                    controller.DeviceType         = DeviceType.JoyLeft;
-                    controller.SystemProperties  |= NpadSystemProperties.IsSlSrButtonOriented |
-                                                    NpadSystemProperties.IsMinusAvailable;
-                    controller.AppletFooterUiType = _device.System.State.DockedMode ? AppletFooterUiType.JoyDualLeftOnly : AppletFooterUiType.HandheldJoyConLeftOnly;
+                    defaultHeader.Type           = ControllerType.JoyconLeft;
+                    defaultHeader.IsHalf         = true;
+                    controller.DeviceType        = DeviceType.JoyLeft;
+                    controller.SystemProperties |= NpadSystemProperties.SlSrButtonOriented |
+                                                   NpadSystemProperties.MinusButtonCapability;
                     break;
                 case ControllerType.JoyconRight:
-                    controller.StyleSet           = NpadStyleTag.JoyRight;
-                    controller.JoyAssignmentMode  = NpadJoyAssignmentMode.Single;
-                    controller.DeviceType         = DeviceType.JoyRight;
-                    controller.SystemProperties  |= NpadSystemProperties.IsSlSrButtonOriented |
-                                                    NpadSystemProperties.IsPlusAvailable;
-                    controller.AppletFooterUiType = _device.System.State.DockedMode ? AppletFooterUiType.JoyDualRightOnly : AppletFooterUiType.HandheldJoyConRightOnly;
+                    defaultHeader.Type           = ControllerType.JoyconRight;
+                    defaultHeader.IsHalf         = true;
+                    controller.DeviceType        = DeviceType.JoyRight;
+                    controller.SystemProperties |= NpadSystemProperties.SlSrButtonOriented |
+                                                   NpadSystemProperties.PlusButtonCapability;
                     break;
                 case ControllerType.Pokeball:
-                    controller.StyleSet           = NpadStyleTag.Palma;
-                    controller.DeviceType         = DeviceType.Palma;
-                    controller.AppletFooterUiType = AppletFooterUiType.None;
+                    defaultHeader.Type    = ControllerType.Pokeball;
+                    controller.DeviceType = DeviceType.Palma;
                     break;
             }
+
+            controller.Header = defaultHeader;
 
             _styleSetUpdateEvents[(int)player].ReadableEvent.Signal();
             _activeCount++;
@@ -304,64 +277,17 @@ namespace Ryujinx.HLE.HOS.Services.Hid
             Logger.Info?.Print(LogClass.Hid, $"Connected Controller {type} to {player}");
         }
 
-        private ref RingLifo<NpadCommonState> GetCommonStateLifo(ref NpadInternalState npad)
+        private static NpadLayoutsIndex ControllerTypeToNpadLayout(ControllerType controllerType)
+        => controllerType switch
         {
-            switch (npad.StyleSet)
-            {
-                case NpadStyleTag.FullKey:
-                    return ref npad.FullKey;
-                case NpadStyleTag.Handheld:
-                    return ref npad.Handheld;
-                case NpadStyleTag.JoyDual:
-                    return ref npad.JoyDual;
-                case NpadStyleTag.JoyLeft:
-                    return ref npad.JoyLeft;
-                case NpadStyleTag.JoyRight:
-                    return ref npad.JoyRight;
-                case NpadStyleTag.Palma:
-                    return ref npad.Palma;
-                default:
-                    return ref npad.SystemExt;
-            }
-        }
-
-        private void UpdateUnusedInputIfNotEqual(ref RingLifo<NpadCommonState> currentlyUsed, ref RingLifo<NpadCommonState> possiblyUnused)
-        {
-            if (!Unsafe.AreSame(ref currentlyUsed, ref possiblyUnused))
-            {
-                NpadCommonState newState = new NpadCommonState();
-
-                WriteNewInputEntry(ref possiblyUnused, ref newState);
-            }
-        }
-
-        private void WriteNewInputEntry(ref RingLifo<NpadCommonState> lifo, ref NpadCommonState state)
-        {
-            ref NpadCommonState previousEntry = ref lifo.GetCurrentEntryRef();
-
-            state.SamplingNumber = previousEntry.SamplingNumber + 1;
-
-            lifo.Write(ref state);
-        }
-
-        private void UpdateUnusedSixInputIfNotEqual(ref RingLifo<SixAxisSensorState> currentlyUsed, ref RingLifo<SixAxisSensorState> possiblyUnused)
-        {
-            if (!Unsafe.AreSame(ref currentlyUsed, ref possiblyUnused))
-            {
-                SixAxisSensorState newState = new SixAxisSensorState();
-
-                WriteNewSixInputEntry(ref possiblyUnused, ref newState);
-            }
-        }
-
-        private void WriteNewSixInputEntry(ref RingLifo<SixAxisSensorState> lifo, ref SixAxisSensorState state)
-        {
-            ref SixAxisSensorState previousEntry = ref lifo.GetCurrentEntryRef();
-
-            state.SamplingNumber = previousEntry.SamplingNumber + 1;
-
-            lifo.Write(ref state);
-        }
+            ControllerType.ProController => NpadLayoutsIndex.ProController,
+            ControllerType.Handheld      => NpadLayoutsIndex.Handheld,
+            ControllerType.JoyconPair    => NpadLayoutsIndex.JoyDual,
+            ControllerType.JoyconLeft    => NpadLayoutsIndex.JoyLeft,
+            ControllerType.JoyconRight   => NpadLayoutsIndex.JoyRight,
+            ControllerType.Pokeball      => NpadLayoutsIndex.Pokeball,
+            _                            => NpadLayoutsIndex.SystemExternal
+        };
 
         private void UpdateInput(GamepadInput state)
         {
@@ -370,88 +296,43 @@ namespace Ryujinx.HLE.HOS.Services.Hid
                 return;
             }
 
-            ref NpadInternalState currentNpad = ref _device.Hid.SharedMemory.Npads[(int)state.PlayerId].InternalState;
+            ref ShMemNpad currentNpad = ref _device.Hid.SharedMemory.Npads[(int)state.PlayerId];
 
-            if (currentNpad.StyleSet == NpadStyleTag.None)
+            if (currentNpad.Header.Type == ControllerType.None)
             {
                 return;
             }
 
-            ref RingLifo<NpadCommonState> lifo = ref GetCommonStateLifo(ref currentNpad);
+            ref NpadLayout currentLayout = ref currentNpad.Layouts[(int)ControllerTypeToNpadLayout(currentNpad.Header.Type)];
+            ref NpadState  currentEntry  = ref currentLayout.Entries[(int)currentLayout.Header.LatestEntry];
 
-            NpadCommonState newState = new NpadCommonState
-            {
-                Buttons      = (NpadButton)state.Buttons,
-                AnalogStickL = new AnalogStickState
-                {
-                    X        = state.LStick.Dx,
-                    Y        = state.LStick.Dy,
-                },
-                AnalogStickR = new AnalogStickState
-                {
-                    X        = state.RStick.Dx,
-                    Y        = state.RStick.Dy,
-                }
-            };
-
-            newState.Attributes = NpadAttribute.IsConnected;
-
-            switch (currentNpad.StyleSet)
-            {
-                case NpadStyleTag.Handheld:
-                case NpadStyleTag.FullKey:
-                    newState.Attributes |= NpadAttribute.IsWired;
-                    break;
-                case NpadStyleTag.JoyDual:
-                    newState.Attributes |= NpadAttribute.IsLeftConnected |
-                                           NpadAttribute.IsRightConnected;
-                    break;
-                case NpadStyleTag.JoyLeft:
-                    newState.Attributes |= NpadAttribute.IsLeftConnected;
-                    break;
-                case NpadStyleTag.JoyRight:
-                    newState.Attributes |= NpadAttribute.IsRightConnected;
-                    break;
-            }
-
-            WriteNewInputEntry(ref lifo, ref newState);
+            currentEntry.Buttons = state.Buttons;
+            currentEntry.LStickX = state.LStick.Dx;
+            currentEntry.LStickY = state.LStick.Dy;
+            currentEntry.RStickX = state.RStick.Dx;
+            currentEntry.RStickY = state.RStick.Dy;
 
             // Mirror data to Default layout just in case
-            if (!currentNpad.StyleSet.HasFlag(NpadStyleTag.SystemExt))
-            {
-                WriteNewInputEntry(ref currentNpad.SystemExt, ref newState);
-            }
-
-            UpdateUnusedInputIfNotEqual(ref lifo, ref currentNpad.FullKey);
-            UpdateUnusedInputIfNotEqual(ref lifo, ref currentNpad.Handheld);
-            UpdateUnusedInputIfNotEqual(ref lifo, ref currentNpad.JoyDual);
-            UpdateUnusedInputIfNotEqual(ref lifo, ref currentNpad.JoyLeft);
-            UpdateUnusedInputIfNotEqual(ref lifo, ref currentNpad.JoyRight);
-            UpdateUnusedInputIfNotEqual(ref lifo, ref currentNpad.Palma);
+            ref NpadLayout mainLayout = ref currentNpad.Layouts[(int)NpadLayoutsIndex.SystemExternal];
+            mainLayout.Entries[(int)mainLayout.Header.LatestEntry] = currentEntry;
         }
 
-        private void UpdateDisconnectedInput(PlayerIndex index)
+        private static SixAxixLayoutsIndex ControllerTypeToSixAxisLayout(ControllerType controllerType)
+        => controllerType switch
         {
-            ref NpadInternalState currentNpad = ref _device.Hid.SharedMemory.Npads[(int)index].InternalState;
-
-            NpadCommonState newState = new NpadCommonState();
-
-            WriteNewInputEntry(ref currentNpad.FullKey, ref newState);
-            WriteNewInputEntry(ref currentNpad.Handheld, ref newState);
-            WriteNewInputEntry(ref currentNpad.JoyDual, ref newState);
-            WriteNewInputEntry(ref currentNpad.JoyLeft, ref newState);
-            WriteNewInputEntry(ref currentNpad.JoyRight, ref newState);
-            WriteNewInputEntry(ref currentNpad.Palma, ref newState);
-        }
+            ControllerType.ProController => SixAxixLayoutsIndex.ProController,
+            ControllerType.Handheld      => SixAxixLayoutsIndex.Handheld,
+            ControllerType.JoyconPair    => SixAxixLayoutsIndex.JoyDualLeft,
+            ControllerType.JoyconLeft    => SixAxixLayoutsIndex.JoyLeft,
+            ControllerType.JoyconRight   => SixAxixLayoutsIndex.JoyRight,
+            ControllerType.Pokeball      => SixAxixLayoutsIndex.Pokeball,
+            _                            => SixAxixLayoutsIndex.SystemExternal
+        };
 
         public void UpdateSixAxis(IList<SixAxisInput> states)
         {
-            Span<bool> updated = stackalloc bool[10];
-
             for (int i = 0; i < states.Count; ++i)
             {
-                updated[(int)states[i].PlayerId] = true;
-
                 if (SetSixAxisState(states[i]))
                 {
                     i++;
@@ -464,40 +345,6 @@ namespace Ryujinx.HLE.HOS.Services.Hid
                     SetSixAxisState(states[i], true);
                 }
             }
-
-            for (int i = 0; i < updated.Length; i++)
-            {
-                if (!updated[i])
-                {
-                    UpdateDisconnectedInputSixAxis((PlayerIndex)i);
-                }
-            }
-        }
-
-        private ref RingLifo<SixAxisSensorState> GetSixAxisSensorLifo(ref NpadInternalState npad, bool isRightPair)
-        {
-            switch (npad.StyleSet)
-            {
-                case NpadStyleTag.FullKey:
-                    return ref npad.FullKeySixAxisSensor;
-                case NpadStyleTag.Handheld:
-                    return ref npad.HandheldSixAxisSensor;
-                case NpadStyleTag.JoyDual:
-                    if (isRightPair)
-                    {
-                        return ref npad.JoyDualRightSixAxisSensor;
-                    }
-                    else
-                    {
-                        return ref npad.JoyDualSixAxisSensor;
-                    }
-                case NpadStyleTag.JoyLeft:
-                    return ref npad.JoyLeftSixAxisSensor;
-                case NpadStyleTag.JoyRight:
-                    return ref npad.JoyRightSixAxisSensor;
-                default:
-                    throw new NotImplementedException($"{npad.StyleSet}");
-            }
         }
 
         private bool SetSixAxisState(SixAxisInput state, bool isRightPair = false)
@@ -507,9 +354,9 @@ namespace Ryujinx.HLE.HOS.Services.Hid
                 return false;
             }
 
-            ref NpadInternalState currentNpad = ref _device.Hid.SharedMemory.Npads[(int)state.PlayerId].InternalState;
+            ref ShMemNpad currentNpad = ref _device.Hid.SharedMemory.Npads[(int)state.PlayerId];
 
-            if (currentNpad.StyleSet == NpadStyleTag.None)
+            if (currentNpad.Header.Type == ControllerType.None)
             {
                 return false;
             }
@@ -535,101 +382,87 @@ namespace Ryujinx.HLE.HOS.Services.Hid
                 Z = state.Rotation.Z
             };
 
-            SixAxisSensorState newState = new SixAxisSensorState
+            ref NpadSixAxis currentLayout = ref currentNpad.Sixaxis[(int)ControllerTypeToSixAxisLayout(currentNpad.Header.Type) + (isRightPair ? 1 : 0)];
+            ref SixAxisState currentEntry = ref currentLayout.Entries[(int)currentLayout.Header.LatestEntry];
+
+            int previousEntryIndex = (int)(currentLayout.Header.LatestEntry == 0 ?
+                                           currentLayout.Header.MaxEntryIndex : currentLayout.Header.LatestEntry - 1);
+
+            ref SixAxisState previousEntry = ref currentLayout.Entries[previousEntryIndex];
+
+            currentEntry.Accelerometer = accel;
+            currentEntry.Gyroscope     = gyro;
+            currentEntry.Rotations     = rotation;
+
+            unsafe
             {
-                Acceleration    = accel,
-                AngularVelocity = gyro,
-                Angle           = rotation,
-                Attributes      = SixAxisSensorAttribute.IsConnected
-            };
-
-            state.Orientation.AsSpan().CopyTo(newState.Direction.AsSpan());
-
-            ref RingLifo<SixAxisSensorState> lifo = ref GetSixAxisSensorLifo(ref currentNpad, isRightPair);
-
-            WriteNewSixInputEntry(ref lifo, ref newState);
-
-            bool needUpdateRight = currentNpad.StyleSet == NpadStyleTag.JoyDual && !isRightPair;
-
-            if (!isRightPair)
-            {
-                UpdateUnusedSixInputIfNotEqual(ref lifo, ref currentNpad.FullKeySixAxisSensor);
-                UpdateUnusedSixInputIfNotEqual(ref lifo, ref currentNpad.HandheldSixAxisSensor);
-                UpdateUnusedSixInputIfNotEqual(ref lifo, ref currentNpad.JoyDualSixAxisSensor);
-                UpdateUnusedSixInputIfNotEqual(ref lifo, ref currentNpad.JoyLeftSixAxisSensor);
-                UpdateUnusedSixInputIfNotEqual(ref lifo, ref currentNpad.JoyRightSixAxisSensor);
-            }
-
-            if (!needUpdateRight && !isRightPair)
-            {
-                SixAxisSensorState emptyState = new SixAxisSensorState();
-
-                emptyState.Attributes = SixAxisSensorAttribute.IsConnected;
-
-                WriteNewSixInputEntry(ref currentNpad.JoyDualRightSixAxisSensor, ref emptyState);
-            }
-
-            return needUpdateRight;
-        }
-
-        private void UpdateDisconnectedInputSixAxis(PlayerIndex index)
-        {
-            ref NpadInternalState currentNpad = ref _device.Hid.SharedMemory.Npads[(int)index].InternalState;
-
-            SixAxisSensorState newState = new SixAxisSensorState();
-
-            newState.Attributes = SixAxisSensorAttribute.IsConnected;
-
-            WriteNewSixInputEntry(ref currentNpad.FullKeySixAxisSensor, ref newState);
-            WriteNewSixInputEntry(ref currentNpad.HandheldSixAxisSensor, ref newState);
-            WriteNewSixInputEntry(ref currentNpad.JoyDualSixAxisSensor, ref newState);
-            WriteNewSixInputEntry(ref currentNpad.JoyDualRightSixAxisSensor, ref newState);
-            WriteNewSixInputEntry(ref currentNpad.JoyLeftSixAxisSensor, ref newState);
-            WriteNewSixInputEntry(ref currentNpad.JoyRightSixAxisSensor, ref newState);
-        }
-
-        public void UpdateRumbleQueue(PlayerIndex index, Dictionary<byte, VibrationValue> dualVibrationValues)
-        {
-            if (RumbleQueues.TryGetValue(index, out ConcurrentQueue<(VibrationValue, VibrationValue)> currentQueue))
-            {
-                if (!dualVibrationValues.TryGetValue(0, out VibrationValue leftVibrationValue))
+                for (int i = 0; i < 9; i++)
                 {
-                    leftVibrationValue = _neutralVibrationValue;
-                }
-
-                if (!dualVibrationValues.TryGetValue(1, out VibrationValue rightVibrationValue))
-                {
-                    rightVibrationValue = _neutralVibrationValue;
-                }
-
-                if (!LastVibrationValues.TryGetValue(index, out (VibrationValue, VibrationValue) dualVibrationValue) || !leftVibrationValue.Equals(dualVibrationValue.Item1) || !rightVibrationValue.Equals(dualVibrationValue.Item2))
-                {
-                    currentQueue.Enqueue((leftVibrationValue, rightVibrationValue));
-
-                    LastVibrationValues[index] = (leftVibrationValue, rightVibrationValue);
+                    currentEntry.Orientation[i] = state.Orientation[i];
                 }
             }
+
+            return currentNpad.Header.Type == ControllerType.JoyconPair && !isRightPair;
         }
 
-        public VibrationValue GetLastVibrationValue(PlayerIndex index, byte position)
+        private void UpdateAllEntries()
         {
-            if (!LastVibrationValues.TryGetValue(index, out (VibrationValue, VibrationValue) dualVibrationValue))
+            ref Array10<ShMemNpad> controllers = ref _device.Hid.SharedMemory.Npads;
+            for (int i = 0; i < controllers.Length; ++i)
             {
-                return _neutralVibrationValue;
+                ref Array7<NpadLayout> layouts = ref controllers[i].Layouts;
+                for (int l = 0; l < layouts.Length; ++l)
+                {
+                    ref NpadLayout currentLayout = ref layouts[l];
+                    int currentIndex = UpdateEntriesHeader(ref currentLayout.Header, out int previousIndex);
+
+                    ref NpadState currentEntry = ref currentLayout.Entries[currentIndex];
+                    NpadState previousEntry    = currentLayout.Entries[previousIndex];
+
+                    currentEntry.SampleTimestamp  = previousEntry.SampleTimestamp + 1;
+                    currentEntry.SampleTimestamp2 = previousEntry.SampleTimestamp2 + 1;
+
+                    if (controllers[i].Header.Type == ControllerType.None)
+                    {
+                        continue;
+                    }
+
+                    currentEntry.ConnectionState = NpadConnectionState.ControllerStateConnected;
+
+                    switch (controllers[i].Header.Type)
+                    {
+                        case ControllerType.Handheld:
+                        case ControllerType.ProController:
+                            currentEntry.ConnectionState |= NpadConnectionState.ControllerStateWired;
+                            break;
+                        case ControllerType.JoyconPair:
+                            currentEntry.ConnectionState |= NpadConnectionState.JoyLeftConnected |
+                                                            NpadConnectionState.JoyRightConnected;
+                            break;
+                        case ControllerType.JoyconLeft:
+                            currentEntry.ConnectionState |= NpadConnectionState.JoyLeftConnected;
+                            break;
+                        case ControllerType.JoyconRight:
+                            currentEntry.ConnectionState |= NpadConnectionState.JoyRightConnected;
+                            break;
+                    }
+                }
+
+                ref Array6<NpadSixAxis> sixaxis = ref controllers[i].Sixaxis;
+                for (int l = 0; l < sixaxis.Length; ++l)
+                {
+                    ref NpadSixAxis currentLayout = ref sixaxis[l];
+                    int currentIndex = UpdateEntriesHeader(ref currentLayout.Header, out int previousIndex);
+
+                    ref SixAxisState currentEntry = ref currentLayout.Entries[currentIndex];
+                    SixAxisState previousEntry = currentLayout.Entries[previousIndex];
+
+                    currentEntry.SampleTimestamp  = previousEntry.SampleTimestamp + 1;
+                    currentEntry.SampleTimestamp2 = previousEntry.SampleTimestamp2 + 1;
+
+                    currentEntry._unknown2 = 1;
+                }
             }
-
-            return (position == 0) ? dualVibrationValue.Item1 : dualVibrationValue.Item2;
-        }
-
-        public ConcurrentQueue<(VibrationValue, VibrationValue)> GetRumbleQueue(PlayerIndex index)
-        {
-            if (!RumbleQueues.TryGetValue(index, out ConcurrentQueue<(VibrationValue, VibrationValue)> rumbleQueue))
-            {
-                rumbleQueue = new ConcurrentQueue<(VibrationValue, VibrationValue)>();
-                _device.Hid.Npads.RumbleQueues[index] = rumbleQueue;
-            }
-
-            return rumbleQueue;
         }
     }
 }

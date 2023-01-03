@@ -1,5 +1,4 @@
 using Ryujinx.Graphics.Shader.IntermediateRepresentation;
-using System;
 
 using static Ryujinx.Graphics.Shader.IntermediateRepresentation.OperandHelper;
 
@@ -182,19 +181,14 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(Instruction.EndPrimitive);
         }
 
-        public static Operand FindLSB(this EmitterContext context, Operand a)
+        public static Operand FindFirstSetS32(this EmitterContext context, Operand a)
         {
-            return context.Add(Instruction.FindLSB, Local(), a);
+            return context.Add(Instruction.FindFirstSetS32, Local(), a);
         }
 
-        public static Operand FindMSBS32(this EmitterContext context, Operand a)
+        public static Operand FindFirstSetU32(this EmitterContext context, Operand a)
         {
-            return context.Add(Instruction.FindMSBS32, Local(), a);
-        }
-
-        public static Operand FindMSBU32(this EmitterContext context, Operand a)
-        {
-            return context.Add(Instruction.FindMSBU32, Local(), a);
+            return context.Add(Instruction.FindFirstSetU32, Local(), a);
         }
 
         public static Operand FP32ConvertToFP64(this EmitterContext context, Operand a)
@@ -247,24 +241,14 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(fpType | Instruction.CompareLess, Local(), a, b);
         }
 
-        public static Operand FP32ConvertToS32(this EmitterContext context, Operand a)
+        public static Operand FPConvertToS32(this EmitterContext context, Operand a)
         {
-            return context.Add(Instruction.ConvertFP32ToS32, Local(), a);
+            return context.Add(Instruction.ConvertFPToS32, Local(), a);
         }
 
-        public static Operand FP32ConvertToU32(this EmitterContext context, Operand a)
+        public static Operand FPConvertToU32(this EmitterContext context, Operand a)
         {
-            return context.Add(Instruction.ConvertFP32ToU32, Local(), a);
-        }
-
-        public static Operand FP64ConvertToS32(this EmitterContext context, Operand a)
-        {
-            return context.Add(Instruction.ConvertFP64ToS32, Local(), a);
-        }
-
-        public static Operand FP64ConvertToU32(this EmitterContext context, Operand a)
-        {
-            return context.Add(Instruction.ConvertFP64ToU32, Local(), a);
+            return context.Add(Instruction.ConvertFPToU32, Local(), a);
         }
 
         public static Operand FPCosine(this EmitterContext context, Operand a)
@@ -272,9 +256,9 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(Instruction.FP32 | Instruction.Cosine, Local(), a);
         }
 
-        public static Operand FPDivide(this EmitterContext context, Operand a, Operand b, Instruction fpType = Instruction.FP32)
+        public static Operand FPDivide(this EmitterContext context, Operand a, Operand b)
         {
-            return context.Add(fpType | Instruction.Divide, Local(), a, b);
+            return context.Add(Instruction.FP32 | Instruction.Divide, Local(), a, b);
         }
 
         public static Operand FPExponentB2(this EmitterContext context, Operand a)
@@ -297,14 +281,14 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(Instruction.FP32 | Instruction.LogarithmB2, Local(), a);
         }
 
-        public static Operand FPMaximum(this EmitterContext context, Operand a, Operand b, Instruction fpType = Instruction.FP32)
+        public static Operand FPMaximum(this EmitterContext context, Operand a, Operand b)
         {
-            return context.Add(fpType | Instruction.Maximum, Local(), a, b);
+            return context.Add(Instruction.FP32 | Instruction.Maximum, Local(), a, b);
         }
 
-        public static Operand FPMinimum(this EmitterContext context, Operand a, Operand b, Instruction fpType = Instruction.FP32)
+        public static Operand FPMinimum(this EmitterContext context, Operand a, Operand b)
         {
-            return context.Add(fpType | Instruction.Minimum, Local(), a, b);
+            return context.Add(Instruction.FP32 | Instruction.Minimum, Local(), a, b);
         }
 
         public static Operand FPMultiply(this EmitterContext context, Operand a, Operand b, Instruction fpType = Instruction.FP32)
@@ -327,14 +311,14 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(fpType | Instruction.Negate, Local(), a);
         }
 
-        public static Operand FPReciprocal(this EmitterContext context, Operand a, Instruction fpType = Instruction.FP32)
+        public static Operand FPReciprocal(this EmitterContext context, Operand a)
         {
-            return context.FPDivide(fpType == Instruction.FP64 ? context.PackDouble2x32(1.0) : ConstF(1), a, fpType);
+            return context.FPDivide(ConstF(1), a);
         }
 
-        public static Operand FPReciprocalSquareRoot(this EmitterContext context, Operand a, Instruction fpType = Instruction.FP32)
+        public static Operand FPReciprocalSquareRoot(this EmitterContext context, Operand a)
         {
-            return context.Add(fpType | Instruction.ReciprocalSquareRoot, Local(), a);
+            return context.Add(Instruction.FP32 | Instruction.ReciprocalSquareRoot, Local(), a);
         }
 
         public static Operand FPRound(this EmitterContext context, Operand a, Instruction fpType = Instruction.FP32)
@@ -354,9 +338,7 @@ namespace Ryujinx.Graphics.Shader.Translation
 
         public static Operand FPSaturate(this EmitterContext context, Operand a, Instruction fpType = Instruction.FP32)
         {
-            return fpType == Instruction.FP64
-                ? context.Add(fpType | Instruction.Clamp, Local(), a, context.PackDouble2x32(0.0), context.PackDouble2x32(1.0))
-                : context.Add(fpType | Instruction.Clamp, Local(), a, ConstF(0), ConstF(1));
+            return context.Add(fpType | Instruction.Clamp, Local(), a, ConstF(0), ConstF(1));
         }
 
         public static Operand FPSine(this EmitterContext context, Operand a)
@@ -377,16 +359,6 @@ namespace Ryujinx.Graphics.Shader.Translation
         public static Operand FPSwizzleAdd(this EmitterContext context, Operand a, Operand b, int mask)
         {
             return context.Add(Instruction.SwizzleAdd, Local(), a, b, Const(mask));
-        }
-
-        public static void FSIBegin(this EmitterContext context)
-        {
-            context.Add(Instruction.FSIBegin);
-        }
-
-        public static void FSIEnd(this EmitterContext context)
-        {
-            context.Add(Instruction.FSIEnd);
         }
 
         public static Operand GroupMemoryBarrier(this EmitterContext context)
@@ -479,24 +451,14 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(Instruction.CompareNotEqual, Local(), a, b);
         }
 
-        public static Operand IConvertS32ToFP32(this EmitterContext context, Operand a)
+        public static Operand IConvertS32ToFP(this EmitterContext context, Operand a)
         {
-            return context.Add(Instruction.ConvertS32ToFP32, Local(), a);
+            return context.Add(Instruction.ConvertS32ToFP, Local(), a);
         }
 
-        public static Operand IConvertS32ToFP64(this EmitterContext context, Operand a)
+        public static Operand IConvertU32ToFP(this EmitterContext context, Operand a)
         {
-            return context.Add(Instruction.ConvertS32ToFP64, Local(), a);
-        }
-
-        public static Operand IConvertU32ToFP32(this EmitterContext context, Operand a)
-        {
-            return context.Add(Instruction.ConvertU32ToFP32, Local(), a);
-        }
-
-        public static Operand IConvertU32ToFP64(this EmitterContext context, Operand a)
-        {
-            return context.Add(Instruction.ConvertU32ToFP64, Local(), a);
+            return context.Add(Instruction.ConvertU32ToFP, Local(), a);
         }
 
         public static Operand IMaximumS32(this EmitterContext context, Operand a, Operand b)
@@ -544,27 +506,18 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(Instruction.Subtract, Local(), a, b);
         }
 
-        public static Operand IsNan(this EmitterContext context, Operand a, Instruction fpType = Instruction.FP32)
+        public static Operand IsNan(this EmitterContext context, Operand a)
         {
-            return context.Add(fpType | Instruction.IsNan, Local(), a);
+            return context.Add(Instruction.IsNan, Local(), a);
         }
 
-        public static Operand LoadAttribute(this EmitterContext context, Operand a, Operand b, Operand c)
+        public static Operand LoadAttribute(this EmitterContext context, Operand a, Operand b)
         {
-            return context.Add(Instruction.LoadAttribute, Local(), a, b, c);
+            return context.Add(Instruction.LoadAttribute, Local(), a, b);
         }
 
         public static Operand LoadConstant(this EmitterContext context, Operand a, Operand b)
         {
-            if (a.Type == OperandType.Constant)
-            {
-                context.Config.SetUsedConstantBuffer(a.Value);
-            }
-            else
-            {
-                context.Config.SetUsedFeature(FeatureFlags.CbIndexing);
-            }
-
             return context.Add(Instruction.LoadConstant, Local(), a, b);
         }
 
@@ -596,13 +549,6 @@ namespace Ryujinx.Graphics.Shader.Translation
         public static Operand MultiplyHighU32(this EmitterContext context, Operand a, Operand b)
         {
             return context.Add(Instruction.MultiplyHighU32, Local(), a, b);
-        }
-
-        public static Operand PackDouble2x32(this EmitterContext context, double value)
-        {
-            long valueAsLong = BitConverter.DoubleToInt64Bits(value);
-
-            return context.Add(Instruction.PackDouble2x32, Local(), Const((int)valueAsLong), Const((int)(valueAsLong >> 32)));
         }
 
         public static Operand PackDouble2x32(this EmitterContext context, Operand a, Operand b)
@@ -662,24 +608,9 @@ namespace Ryujinx.Graphics.Shader.Translation
             return context.Add(Instruction.ShuffleXor, (Local(), Local()), a, b, c);
         }
 
-        public static Operand StoreAttribute(this EmitterContext context, Operand a, Operand b, Operand c)
-        {
-            return context.Add(Instruction.StoreAttribute, null, a, b, c);
-        }
-
         public static Operand StoreGlobal(this EmitterContext context, Operand a, Operand b, Operand c)
         {
             return context.Add(Instruction.StoreGlobal, null, a, b, c);
-        }
-
-        public static Operand StoreGlobal16(this EmitterContext context, Operand a, Operand b, Operand c)
-        {
-            return context.Add(Instruction.StoreGlobal16, null, a, b, c);
-        }
-
-        public static Operand StoreGlobal8(this EmitterContext context, Operand a, Operand b, Operand c)
-        {
-            return context.Add(Instruction.StoreGlobal8, null, a, b, c);
         }
 
         public static Operand StoreLocal(this EmitterContext context, Operand a, Operand b)
@@ -690,16 +621,6 @@ namespace Ryujinx.Graphics.Shader.Translation
         public static Operand StoreShared(this EmitterContext context, Operand a, Operand b)
         {
             return context.Add(Instruction.StoreShared, null, a, b);
-        }
-
-        public static Operand StoreShared16(this EmitterContext context, Operand a, Operand b)
-        {
-            return context.Add(Instruction.StoreShared16, null, a, b);
-        }
-
-        public static Operand StoreShared8(this EmitterContext context, Operand a, Operand b)
-        {
-            return context.Add(Instruction.StoreShared8, null, a, b);
         }
 
         public static Operand UnpackDouble2x32High(this EmitterContext context, Operand a)

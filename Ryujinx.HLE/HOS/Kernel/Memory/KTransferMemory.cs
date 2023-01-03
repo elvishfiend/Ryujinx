@@ -1,4 +1,3 @@
-using Ryujinx.Common;
 using Ryujinx.HLE.HOS.Kernel.Common;
 using Ryujinx.HLE.HOS.Kernel.Process;
 using System;
@@ -15,7 +14,7 @@ namespace Ryujinx.HLE.HOS.Kernel.Memory
         private readonly KPageList _pageList;
 
         public ulong Address { get; private set; }
-        public ulong Size { get; private set; }
+        public ulong Size => _pageList.GetPagesCount() * KMemoryManager.PageSize;
 
         public KMemoryPermission Permission { get; private set; }
 
@@ -25,15 +24,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Memory
         public KTransferMemory(KernelContext context) : base(context)
         {
             _pageList = new KPageList();
-        }
-
-        public KTransferMemory(KernelContext context, SharedMemoryStorage storage) : base(context)
-        {
-            _pageList = storage.GetPageList();
-            Permission = KMemoryPermission.ReadAndWrite;
-
-            _hasBeenInitialized = true;
-            _isMapped = false;
         }
 
         public KernelResult Initialize(ulong address, ulong size, KMemoryPermission permission)
@@ -53,61 +43,8 @@ namespace Ryujinx.HLE.HOS.Kernel.Memory
 
             Permission = permission;
             Address = address;
-            Size = size;
             _hasBeenInitialized = true;
             _isMapped = false;
-
-            return result;
-        }
-
-        public KernelResult MapIntoProcess(
-            KPageTableBase memoryManager,
-            ulong address,
-            ulong size,
-            KProcess process,
-            KMemoryPermission permission)
-        {
-            if (_pageList.GetPagesCount() != BitUtils.DivRoundUp<ulong>(size, KPageTableBase.PageSize))
-            {
-                return KernelResult.InvalidSize;
-            }
-
-            if (permission != Permission || _isMapped)
-            {
-                return KernelResult.InvalidState;
-            }
-
-            MemoryState state = Permission == KMemoryPermission.None ? MemoryState.TransferMemoryIsolated : MemoryState.TransferMemory;
-
-            KernelResult result = memoryManager.MapPages(address, _pageList, state, KMemoryPermission.ReadAndWrite);
-
-            if (result == KernelResult.Success)
-            {
-                _isMapped = true;
-            }
-
-            return result;
-        }
-
-        public KernelResult UnmapFromProcess(
-            KPageTableBase memoryManager,
-            ulong address,
-            ulong size,
-            KProcess process)
-        {
-            if (_pageList.GetPagesCount() != BitUtils.DivRoundUp<ulong>(size, (ulong)KPageTableBase.PageSize))
-            {
-                return KernelResult.InvalidSize;
-            }
-
-            MemoryState state = Permission == KMemoryPermission.None ? MemoryState.TransferMemoryIsolated : MemoryState.TransferMemory;
-
-            KernelResult result = memoryManager.UnmapPages(address, _pageList, state);
-
-            if (result == KernelResult.Success)
-            {
-                _isMapped = false;
-            }
 
             return result;
         }

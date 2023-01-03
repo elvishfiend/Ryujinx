@@ -1,11 +1,10 @@
 using Ryujinx.Graphics.Shader.CodeGen.Glsl;
-using Ryujinx.Graphics.Shader.CodeGen.Spirv;
 using Ryujinx.Graphics.Shader.Decoders;
 using Ryujinx.Graphics.Shader.IntermediateRepresentation;
 using Ryujinx.Graphics.Shader.StructuredIr;
 using Ryujinx.Graphics.Shader.Translation.Optimizations;
-using System;
-using System.Linq;
+using System.Collections.Generic;
+
 using static Ryujinx.Graphics.Shader.IntermediateRepresentation.OperandHelper;
 
 namespace Ryujinx.Graphics.Shader.Translation
@@ -14,7 +13,7 @@ namespace Ryujinx.Graphics.Shader.Translation
     {
         private const int HeaderSize = 0x50;
 
-        internal readonly struct FunctionCode
+        internal struct FunctionCode
         {
             public Operation[] Code { get; }
 
@@ -24,12 +23,20 @@ namespace Ryujinx.Graphics.Shader.Translation
             }
         }
 
-        public static TranslatorContext CreateContext(ulong address, IGpuAccessor gpuAccessor, TranslationOptions options)
+        public static TranslatorContext CreateContext(
+            ulong address,
+            IGpuAccessor gpuAccessor,
+            TranslationFlags flags,
+            TranslationCounts counts = null)
         {
-            return DecodeShader(address, gpuAccessor, options);
+            counts ??= new TranslationCounts();
+
+            Block[][] cfg = DecodeShader(address, gpuAccessor, flags, counts, out ShaderConfig config);
+
+            return new TranslatorContext(address, cfg, config);
         }
 
-        internal static ShaderProgram Translate(FunctionCode[] functions, ShaderConfig config)
+        internal static ShaderProgram Translate(FunctionCode[] functions, ShaderConfig config, out ShaderProgramInfo shaderProgramInfo)
         {
             var cfgs = new ControlFlowGraph[functions.Length];
             var frus = new RegisterUsage.FunctionRegisterUsage[functions.Length];
@@ -71,183 +78,132 @@ namespace Ryujinx.Graphics.Shader.Translation
                     Ssa.Rename(cfg.Blocks);
 
                     Optimizer.RunPass(cfg.Blocks, config);
+
                     Rewriter.RunPass(cfg.Blocks, config);
                 }
 
                 funcs[i] = new Function(cfg.Blocks, $"fun{i}", false, inArgumentsCount, outArgumentsCount);
             }
 
-            var sInfo = StructuredProgram.MakeStructuredProgram(funcs, config);
+            StructuredProgramInfo sInfo = StructuredProgram.MakeStructuredProgram(funcs, config);
 
-            var info = config.CreateProgramInfo();
+            GlslProgram program = GlslGenerator.Generate(sInfo, config);
 
-            return config.Options.TargetLanguage switch
-            {
-                TargetLanguage.Glsl => new ShaderProgram(info, TargetLanguage.Glsl, GlslGenerator.Generate(sInfo, config)),
-                TargetLanguage.Spirv => new ShaderProgram(info, TargetLanguage.Spirv, SpirvGenerator.Generate(sInfo, config)),
-                _ => throw new NotImplementedException(config.Options.TargetLanguage.ToString())
-            };
+            shaderProgramInfo = new ShaderProgramInfo(
+                program.CBufferDescriptors,
+                program.SBufferDescriptors,
+                program.TextureDescriptors,
+                program.ImageDescriptors,
+                sInfo.UsesInstanceId);
+
+            string glslCode = program.Code;
+
+            return new ShaderProgram(config.Stage, glslCode);
         }
 
-        private static TranslatorContext DecodeShader(ulong address, IGpuAccessor gpuAccessor, TranslationOptions options)
+        private static Block[][] DecodeShader(
+            ulong address,
+            IGpuAccessor gpuAccessor,
+            TranslationFlags flags,
+            TranslationCounts counts,
+            out ShaderConfig config)
         {
-            ShaderConfig config;
-            DecodedProgram program;
+            Block[][] cfg;
             ulong maxEndAddress = 0;
 
-            if (options.Flags.HasFlag(TranslationFlags.Compute))
-            {
-                config = new ShaderConfig(gpuAccessor, options);
+            bool hasBindless = false;
 
-                program = Decoder.Decode(config, address);
+            if ((flags & TranslationFlags.Compute) != 0)
+            {
+                config = new ShaderConfig(gpuAccessor, flags, counts);
+
+                cfg = Decoder.Decode(gpuAccessor, address, out hasBindless);
             }
             else
             {
-                config = new ShaderConfig(new ShaderHeader(gpuAccessor, address), gpuAccessor, options);
+                config = new ShaderConfig(new ShaderHeader(gpuAccessor, address), gpuAccessor, flags, counts);
 
-                program = Decoder.Decode(config, address + HeaderSize);
+                cfg = Decoder.Decode(gpuAccessor, address + HeaderSize, out hasBindless);
             }
 
-            foreach (DecodedFunction function in program)
+            if (hasBindless)
             {
-                foreach (Block block in function.Blocks)
+                config.SetUsedFeature(FeatureFlags.Bindless);
+            }
+            else // Not bindless, fill up texture handles
+            {
+                for (int funcIndex = 0; funcIndex < cfg.Length; funcIndex++)
                 {
-                    if (maxEndAddress < block.EndAddress)
+                    for (int blkIndex = 0; blkIndex < cfg[funcIndex].Length; blkIndex++)
                     {
-                        maxEndAddress = block.EndAddress;
+                        Block block = cfg[funcIndex][blkIndex];
+
+                        if (maxEndAddress < block.EndAddress)
+                        {
+                            maxEndAddress = block.EndAddress;
+                        }
+
+                        for (int index = 0; index < block.OpCodes.Count; index++)
+                        {
+                            if (block.OpCodes[index] is OpCodeTextureBase texture)
+                            {
+                                config.TextureHandlesForCache.Add(texture.HandleOffset);
+                            }
+                        }
                     }
                 }
             }
 
-            config.SizeAdd((int)maxEndAddress + (options.Flags.HasFlag(TranslationFlags.Compute) ? 0 : HeaderSize));
+            config.SizeAdd((int)maxEndAddress + (flags.HasFlag(TranslationFlags.Compute) ? 0 : HeaderSize));
 
-            return new TranslatorContext(address, program, config);
+            return cfg;
         }
 
-        internal static FunctionCode[] EmitShader(DecodedProgram program, ShaderConfig config, bool initializeOutputs, out int initializationOperations)
+        internal static FunctionCode[] EmitShader(Block[][] cfg, ShaderConfig config)
         {
-            initializationOperations = 0;
+            Dictionary<ulong, int> funcIds = new Dictionary<ulong, int>();
 
-            FunctionMatch.RunPass(program);
-
-            foreach (DecodedFunction function in program.OrderBy(x => x.Address).Where(x => !x.IsCompilerGenerated))
+            for (int funcIndex = 0; funcIndex < cfg.Length; funcIndex++)
             {
-                program.AddFunctionAndSetId(function);
+                funcIds.Add(cfg[funcIndex][0].Address, funcIndex);
             }
 
-            FunctionCode[] functions = new FunctionCode[program.FunctionsWithIdCount];
+            List<FunctionCode> funcs = new List<FunctionCode>();
 
-            for (int index = 0; index < functions.Length; index++)
+            for (int funcIndex = 0; funcIndex < cfg.Length; funcIndex++)
             {
-                EmitterContext context = new EmitterContext(program, config, index != 0);
+                EmitterContext context = new EmitterContext(config, funcIndex != 0, funcIds);
 
-                if (initializeOutputs && index == 0)
+                for (int blkIndex = 0; blkIndex < cfg[funcIndex].Length; blkIndex++)
                 {
-                    EmitOutputsInitialization(context, config);
-                    initializationOperations = context.OperationsCount;
-                }
+                    Block block = cfg[funcIndex][blkIndex];
 
-                DecodedFunction function = program.GetFunctionById(index);
-
-                foreach (Block block in function.Blocks)
-                {
                     context.CurrBlock = block;
 
-                    context.EnterBlock(block.Address);
+                    context.MarkLabel(context.GetLabel(block.Address));
 
                     EmitOps(context, block);
                 }
 
-                functions[index] = new FunctionCode(context.GetOperations());
+                funcs.Add(new FunctionCode(context.GetOperations()));
             }
 
-            return functions;
-        }
-
-        private static void EmitOutputsInitialization(EmitterContext context, ShaderConfig config)
-        {
-            // Compute has no output attributes, and fragment is the last stage, so we
-            // don't need to initialize outputs on those stages.
-            if (config.Stage == ShaderStage.Compute || config.Stage == ShaderStage.Fragment)
-            {
-                return;
-            }
-
-            if (config.Stage == ShaderStage.Vertex)
-            {
-                InitializeOutput(context, AttributeConsts.PositionX, perPatch: false);
-            }
-
-            UInt128 usedAttributes = context.Config.NextInputAttributesComponents;
-            while (usedAttributes != UInt128.Zero)
-            {
-                int index = (int)UInt128.TrailingZeroCount(usedAttributes);
-                int vecIndex = index / 4;
-
-                usedAttributes &= ~(UInt128.One << index);
-
-                // We don't need to initialize passthrough attributes.
-                if ((context.Config.PassthroughAttributes & (1 << vecIndex)) != 0)
-                {
-                    continue;
-                }
-
-                InitializeOutputComponent(context, AttributeConsts.UserAttributeBase + index * 4, perPatch: false);
-            }
-
-            if (context.Config.NextUsedInputAttributesPerPatch != null)
-            {
-                foreach (int vecIndex in context.Config.NextUsedInputAttributesPerPatch.Order())
-                {
-                    InitializeOutput(context, AttributeConsts.UserAttributePerPatchBase + vecIndex * 16, perPatch: true);
-                }
-            }
-
-            if (config.NextUsesFixedFuncAttributes)
-            {
-                for (int i = 0; i < 4 + AttributeConsts.TexCoordCount; i++)
-                {
-                    int index = config.GetFreeUserAttribute(isOutput: true, i);
-                    if (index < 0)
-                    {
-                        break;
-                    }
-
-                    InitializeOutput(context, AttributeConsts.UserAttributeBase + index * 16, perPatch: false);
-
-                    config.SetOutputUserAttributeFixedFunc(index);
-                }
-            }
-        }
-
-        private static void InitializeOutput(EmitterContext context, int baseAttr, bool perPatch)
-        {
-            for (int c = 0; c < 4; c++)
-            {
-                int attrOffset = baseAttr + c * 4;
-                InitializeOutputComponent(context, attrOffset, perPatch);
-            }
-        }
-
-        private static void InitializeOutputComponent(EmitterContext context, int attrOffset, bool perPatch)
-        {
-            int c = (attrOffset >> 2) & 3;
-            context.Copy(perPatch ? AttributePerPatch(attrOffset) : Attribute(attrOffset), ConstF(c == 3 ? 1f : 0f));
+            return funcs.ToArray();
         }
 
         private static void EmitOps(EmitterContext context, Block block)
         {
             for (int opIndex = 0; opIndex < block.OpCodes.Count; opIndex++)
             {
-                InstOp op = block.OpCodes[opIndex];
+                OpCode op = block.OpCodes[opIndex];
 
-                if (context.Config.Options.Flags.HasFlag(TranslationFlags.DebugMode))
+                if ((context.Config.Flags & TranslationFlags.DebugMode) != 0)
                 {
                     string instName;
 
                     if (op.Emitter != null)
                     {
-                        instName = op.Name.ToString();
+                        instName = op.Emitter.Method.Name;
                     }
                     else
                     {
@@ -261,36 +217,31 @@ namespace Ryujinx.Graphics.Shader.Translation
                     context.Add(new CommentNode(dbgComment));
                 }
 
-                InstConditional opConditional = new InstConditional(op.RawOpCode);
-
-                bool noPred = op.Props.HasFlag(InstProps.NoPred);
-                if (!noPred && opConditional.Pred == RegisterConsts.PredicateTrueIndex && opConditional.PredInv)
+                if (op.NeverExecute)
                 {
                     continue;
                 }
 
                 Operand predSkipLbl = null;
 
-                if (Decoder.IsPopBranch(op.Name))
+                bool skipPredicateCheck = op is OpCodeBranch opBranch && !opBranch.PushTarget;
+
+                if (op is OpCodeBranchPop opBranchPop)
                 {
                     // If the instruction is a SYNC or BRK instruction with only one
                     // possible target address, then the instruction is basically
                     // just a simple branch, we can generate code similar to branch
                     // instructions, with the condition check on the branch itself.
-                    noPred = block.SyncTargets.Count <= 1;
-                }
-                else if (op.Name == InstName.Bra)
-                {
-                    noPred = true;
+                    skipPredicateCheck = opBranchPop.Targets.Count < 2;
                 }
 
-                if (!(opConditional.Pred == RegisterConsts.PredicateTrueIndex || noPred))
+                if (!(op.Predicate.IsPT || skipPredicateCheck))
                 {
                     Operand label;
 
-                    if (opIndex == block.OpCodes.Count - 1 && block.HasNext())
+                    if (opIndex == block.OpCodes.Count - 1 && block.Next != null)
                     {
-                        label = context.GetLabel(block.Successors[0].Address);
+                        label = context.GetLabel(block.Next.Address);
                     }
                     else
                     {
@@ -299,9 +250,9 @@ namespace Ryujinx.Graphics.Shader.Translation
                         predSkipLbl = label;
                     }
 
-                    Operand pred = Register(opConditional.Pred, RegisterType.Predicate);
+                    Operand pred = Register(op.Predicate);
 
-                    if (opConditional.PredInv)
+                    if (op.InvertPredicate)
                     {
                         context.BranchIfTrue(label, pred);
                     }

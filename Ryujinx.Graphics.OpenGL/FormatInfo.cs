@@ -2,7 +2,7 @@ using OpenTK.Graphics.OpenGL;
 
 namespace Ryujinx.Graphics.OpenGL
 {
-    readonly struct FormatInfo
+    struct FormatInfo
     {
         public int  Components { get; }
         public bool Normalized { get; }

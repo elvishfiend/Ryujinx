@@ -1,3 +1,20 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using System;
 using System.Diagnostics;
 using static Ryujinx.Audio.Renderer.Common.BehaviourParameter;
@@ -44,7 +61,7 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <see cref="Parameter.RendererInfoOutStatus"/> was added to supply the count of update done sent to the DSP.
         /// A new version of the command estimator was added to address timing changes caused by the voice changes.
         /// Additionally, the rendering limit percent was incremented to 80%.
-        ///
+        /// 
         /// </summary>
         /// <remarks>This was added in system update 6.0.0</remarks>
         public const int Revision5 = 5 << 24;
@@ -73,37 +90,9 @@ namespace Ryujinx.Audio.Renderer.Server
         public const int Revision8 = 8 << 24;
 
         /// <summary>
-        /// REV9:
-        /// EffectInfo parameters were revisited with a new revision (version 2) allowing more data control between the client and server.
-        /// A new effect was added: Limiter. This effect is effectively implemented with a DRC while providing statistics on the processing on <see cref="Parameter.EffectOutStatusVersion2"/>.
-        /// </summary>
-        /// <remarks>This was added in system update 12.0.0</remarks>
-        public const int Revision9 = 9 << 24;
-
-        /// <summary>
-        /// REV10:
-        /// Added Bluetooth audio device support and removed the unused "GetAudioSystemMasterVolumeSetting" audio device API.
-        /// A new effect was added: Capture. This effect allows the client side to capture audio buffers of a mix.
-        /// A new command was added for double biquad filters on voices. This is implemented using a direct form 1 (instead of the usual direct form 2).
-        /// A new version of the command estimator was added to support the new commands.
-        /// </summary>
-        /// <remarks>This was added in system update 13.0.0</remarks>
-        public const int Revision10 = 10 << 24;
-
-        /// <summary>
-        /// REV11:
-        /// The "legacy" effects (Delay, Reverb and Reverb 3D) were updated to match the standard channel mapping used by the audio renderer.
-        /// A new effect was added: Compressor. This effect is effectively implemented with a DRC.
-        /// A new version of the command estimator was added to address timing changes caused by the legacy effects changes.
-        /// A voice drop parameter was added in 15.0.0: This allows an application to amplify or attenuate the estimated time of DSP commands.
-        /// </summary>
-        /// <remarks>This was added in system update 14.0.0 but some changes were made in 15.0.0</remarks>
-        public const int Revision11 = 11 << 24;
-
-        /// <summary>
         /// Last revision supported by the implementation.
         /// </summary>
-        public const int LastRevision = Revision11;
+        public const int LastRevision = Revision8;
 
         /// <summary>
         /// Target revision magic supported by the implementation.
@@ -143,8 +132,8 @@ namespace Ryujinx.Audio.Renderer.Server
         public BehaviourContext()
         {
             UserRevision = 0;
-            _errorInfos = new ErrorInfo[Constants.MaxErrorInfos];
-            _errorIndex = 0;
+            _errorInfos  = new ErrorInfo[Constants.MaxErrorInfos];
+            _errorIndex  = 0;
         }
 
         /// <summary>
@@ -342,48 +331,11 @@ namespace Ryujinx.Audio.Renderer.Server
         }
 
         /// <summary>
-        /// Check if the audio renderer should use the new effect info format.
-        /// </summary>
-        /// <returns>True if the audio renderer should use the new effect info format.</returns>
-        public bool IsEffectInfoVersion2Supported()
-        {
-            return CheckFeatureSupported(UserRevision, BaseRevisionMagic + Revision9);
-        }
-
-        /// <summary>
-        /// Check if the audio renderer should use an optimized Biquad Filter (Direct Form 1) in case of two biquad filters are defined on a voice.
-        /// </summary>
-        /// <returns>True if the audio renderer should use the optimization.</returns>
-        public bool IsBiquadFilterGroupedOptimizationSupported()
-        {
-            return CheckFeatureSupported(UserRevision, BaseRevisionMagic + Revision10);
-        }
-
-        /// <summary>
-        /// Check if the audio renderer should support new channel resource mapping for 5.1 on Delay, Reverb and Reverb 3D effects.
-        /// </summary>
-        /// <returns>True if the audio renderer support new channel resource mapping for 5.1.</returns>
-        public bool IsNewEffectChannelMappingSupported()
-        {
-            return CheckFeatureSupported(UserRevision, BaseRevisionMagic + Revision11);
-        }
-
-        /// <summary>
         /// Get the version of the <see cref="ICommandProcessingTimeEstimator"/>.
         /// </summary>
         /// <returns>The version of the <see cref="ICommandProcessingTimeEstimator"/>.</returns>
         public int GetCommandProcessingTimeEstimatorVersion()
         {
-            if (CheckFeatureSupported(UserRevision, BaseRevisionMagic + Revision11))
-            {
-                return 5;
-            }
-
-            if (CheckFeatureSupported(UserRevision, BaseRevisionMagic + Revision10))
-            {
-                return 4;
-            }
-
             if (CheckFeatureSupported(UserRevision, BaseRevisionMagic + Revision8))
             {
                 return 3;

@@ -1,14 +1,14 @@
-﻿using Ryujinx.Common.Memory;
-using Ryujinx.HLE.HOS.Services.Time.Clock;
-using System;
+﻿using Ryujinx.HLE.HOS.Services.Time.Clock;
+using Ryujinx.HLE.Utilities;
 using System.IO;
+using static Ryujinx.HLE.HOS.Services.Time.TimeZone.TimeZoneRule;
 
 namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
 {
     class TimeZoneManager
     {
         private bool                 _isInitialized;
-        private Box<TimeZoneRule>    _myRules;
+        private TimeZoneRule         _myRules;
         private string               _deviceLocationName;
         private UInt128              _timeZoneRuleVersion;
         private uint                 _totalLocationNameCount;
@@ -21,7 +21,15 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
             _deviceLocationName  = "UTC";
             _timeZoneRuleVersion = new UInt128();
             _lock                = new object();
-            _myRules             = new Box<TimeZoneRule>();
+
+            // Empty rules
+            _myRules = new TimeZoneRule
+            {
+                Ats   = new long[TzMaxTimes],
+                Types = new byte[TzMaxTimes],
+                Ttis  = new TimeTypeInfo[TzMaxTypes],
+                Chars = new char[TzCharsArraySize]
+            };
 
             _timeZoneUpdateTimePoint = SteadyClockTimePoint.GetRandom();
         }
@@ -70,9 +78,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
 
             lock (_lock)
             {
-                Box<TimeZoneRule> rules = new Box<TimeZoneRule>();
-
-                bool timeZoneConversionSuccess = TimeZone.ParseTimeZoneBinary(ref rules.Data, timeZoneBinaryStream);
+                bool timeZoneConversionSuccess = TimeZone.ParseTimeZoneBinary(out TimeZoneRule rules, timeZoneBinaryStream);
 
                 if (timeZoneConversionSuccess)
                 {
@@ -148,13 +154,13 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
             return result;
         }
 
-        public ResultCode ParseTimeZoneRuleBinary(ref TimeZoneRule outRules, Stream timeZoneBinaryStream)
+        public ResultCode ParseTimeZoneRuleBinary(out TimeZoneRule outRules, Stream timeZoneBinaryStream)
         {
             ResultCode result = ResultCode.Success;
 
             lock (_lock)
             {
-                bool timeZoneConversionSuccess = TimeZone.ParseTimeZoneBinary(ref outRules, timeZoneBinaryStream);
+                bool timeZoneConversionSuccess = TimeZone.ParseTimeZoneBinary(out outRules, timeZoneBinaryStream);
 
                 if (!timeZoneConversionSuccess)
                 {
@@ -202,7 +208,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
             {
                 if (_isInitialized)
                 {
-                    result = ToCalendarTime(in _myRules.Data, time, out calendar);
+                    result = ToCalendarTime(_myRules, time, out calendar);
                 }
                 else
                 {
@@ -214,13 +220,13 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
             return result;
         }
 
-        public ResultCode ToCalendarTime(in TimeZoneRule rules, long time, out CalendarInfo calendar)
+        public ResultCode ToCalendarTime(TimeZoneRule rules, long time, out CalendarInfo calendar)
         {
             ResultCode result;
 
             lock (_lock)
             {
-                result = TimeZone.ToCalendarTime(in rules, time, out calendar);
+                result = TimeZone.ToCalendarTime(rules, time, out calendar);
             }
 
             return result;
@@ -234,7 +240,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
             {
                 if (_isInitialized)
                 {
-                    result = ToPosixTime(in _myRules.Data, calendarTime, out posixTime);
+                    result = ToPosixTime(_myRules, calendarTime, out posixTime);
                 }
                 else
                 {
@@ -246,13 +252,13 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
             return result;
         }
 
-        public ResultCode ToPosixTime(in TimeZoneRule rules, CalendarTime calendarTime, out long posixTime)
+        public ResultCode ToPosixTime(TimeZoneRule rules, CalendarTime calendarTime, out long posixTime)
         {
             ResultCode result;
 
             lock (_lock)
             {
-                result = TimeZone.ToPosixTime(in rules, calendarTime, out posixTime);
+                result = TimeZone.ToPosixTime(rules, calendarTime, out posixTime);
             }
 
             return result;

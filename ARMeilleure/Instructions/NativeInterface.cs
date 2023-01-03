@@ -2,6 +2,8 @@ using ARMeilleure.Memory;
 using ARMeilleure.State;
 using ARMeilleure.Translation;
 using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace ARMeilleure.Instructions
 {
@@ -72,6 +74,29 @@ namespace ARMeilleure.Instructions
             return (ulong)GetContext().DczidEl0;
         }
 
+        public static ulong GetFpcr()
+        {
+            return (ulong)GetContext().Fpcr;
+        }
+
+        public static bool GetFpcrFz()
+        {
+            return (GetContext().Fpcr & FPCR.Fz) != 0;
+        }
+
+        public static ulong GetFpsr()
+        {
+            return (ulong)GetContext().Fpsr;
+        }
+
+        public static uint GetFpscr()
+        {
+            ExecutionContext context = GetContext();
+
+            return (uint)(context.Fpsr & FPSR.A32Mask & ~FPSR.Nzcv) |
+                   (uint)(context.Fpcr & FPCR.A32Mask);
+        }
+
         public static ulong GetTpidrEl0()
         {
             return (ulong)GetContext().TpidrEl0;
@@ -82,14 +107,14 @@ namespace ARMeilleure.Instructions
             return (uint)GetContext().TpidrEl0;
         }
 
-        public static ulong GetTpidrroEl0()
+        public static ulong GetTpidr()
         {
-            return (ulong)GetContext().TpidrroEl0;
+            return (ulong)GetContext().Tpidr;
         }
 
         public static uint GetTpidr32()
         {
-            return (uint)GetContext().TpidrroEl0;
+            return (uint)GetContext().Tpidr;
         }
 
         public static ulong GetCntfrqEl0()
@@ -105,6 +130,29 @@ namespace ARMeilleure.Instructions
         public static ulong GetCntvctEl0()
         {
             return GetContext().CntvctEl0;
+        }
+
+        public static void SetFpcr(ulong value)
+        {
+            GetContext().Fpcr = (FPCR)value;
+        }
+
+        public static void SetFpsr(ulong value)
+        {
+            GetContext().Fpsr = (FPSR)value;
+        }
+
+        public static void SetFpsrQc()
+        {
+            GetContext().Fpsr |= FPSR.Qc;
+        }
+
+        public static void SetFpscr(uint fpscr)
+        {
+            ExecutionContext context = GetContext();
+
+            context.Fpsr = FPSR.A32Mask & (FPSR)fpscr;
+            context.Fpcr = FPCR.A32Mask & (FPCR)fpscr;
         }
 
         public static void SetTpidrEl0(ulong value)
@@ -172,11 +220,6 @@ namespace ARMeilleure.Instructions
         }
         #endregion
 
-        public static void EnqueueForRejit(ulong address)
-        {
-            Context.Translator.EnqueueForRejit(address, GetContext().ExecutionMode);
-        }
-
         public static void SignalMemoryTracking(ulong address, ulong size, bool write)
         {
             GetMemoryManager().SignalMemoryTracking(address, size, write);
@@ -189,14 +232,36 @@ namespace ARMeilleure.Instructions
 
         public static ulong GetFunctionAddress(ulong address)
         {
-            TranslatedFunction function = Context.Translator.GetOrTranslate(address, GetContext().ExecutionMode);
+            return GetFunctionAddressWithHint(address, true);
+        }
+
+        public static ulong GetFunctionAddressWithoutRejit(ulong address)
+        {
+            return GetFunctionAddressWithHint(address, false);
+        }
+
+        private static ulong GetFunctionAddressWithHint(ulong address, bool hintRejit)
+        {
+            TranslatedFunction function = Context.Translator.GetOrTranslate(address, GetContext().ExecutionMode, hintRejit);
 
             return (ulong)function.FuncPtr.ToInt64();
         }
 
-        public static void InvalidateCacheLine(ulong address)
+        public static ulong GetIndirectFunctionAddress(ulong address, ulong entryAddress)
         {
-            Context.Translator.InvalidateJitCacheRegion(address, InstEmit.DczSizeInBytes);
+            TranslatedFunction function = Context.Translator.GetOrTranslate(address, GetContext().ExecutionMode, hintRejit: true);
+
+            ulong ptr = (ulong)function.FuncPtr.ToInt64();
+
+            if (function.HighCq)
+            {
+                Debug.Assert(Context.Translator.JumpTable.CheckEntryFromAddressDynamicTable((IntPtr)entryAddress));
+
+                // Rewrite the host function address in the table to point to the highCq function.
+                Marshal.WriteInt64((IntPtr)entryAddress, 8, (long)ptr);
+            }
+
+            return ptr;
         }
 
         public static bool CheckSynchronization()

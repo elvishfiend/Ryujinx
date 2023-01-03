@@ -1,3 +1,20 @@
+﻿//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Integration;
 using Ryujinx.Memory;
@@ -10,15 +27,13 @@ namespace Ryujinx.Audio.Backends.Dummy
     public class DummyHardwareDeviceDriver : IHardwareDeviceDriver
     {
         private ManualResetEvent _updateRequiredEvent;
-        private ManualResetEvent _pauseEvent;
 
         public DummyHardwareDeviceDriver()
         {
             _updateRequiredEvent = new ManualResetEvent(false);
-            _pauseEvent = new ManualResetEvent(true);
         }
 
-        public IHardwareDeviceSession OpenDeviceSession(Direction direction, IVirtualMemoryManager memoryManager, SampleFormat sampleFormat, uint sampleRate, uint channelCount, float volume)
+        public IHardwareDeviceSession OpenDeviceSession(Direction direction, IVirtualMemoryManager memoryManager, SampleFormat sampleFormat, uint sampleRate, uint channelCount)
         {
             if (sampleRate == 0)
             {
@@ -32,7 +47,7 @@ namespace Ryujinx.Audio.Backends.Dummy
 
             if (direction == Direction.Output)
             {
-                return new DummyHardwareDeviceSessionOutput(this, memoryManager, sampleFormat, sampleRate, channelCount, volume);
+                return new DummyHardwareDeviceSessionOutput(this, memoryManager, sampleFormat, sampleRate, channelCount);
             }
             else
             {
@@ -45,11 +60,6 @@ namespace Ryujinx.Audio.Backends.Dummy
             return _updateRequiredEvent;
         }
 
-        public ManualResetEvent GetPauseEvent()
-        {
-            return _pauseEvent;
-        }
-
         public void Dispose()
         {
             Dispose(true);
@@ -60,7 +70,6 @@ namespace Ryujinx.Audio.Backends.Dummy
             if (disposing)
             {
                 // NOTE: The _updateRequiredEvent will be disposed somewhere else.
-                _pauseEvent.Dispose();
             }
         }
 

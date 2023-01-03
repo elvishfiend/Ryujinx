@@ -4,10 +4,9 @@
     {
         public int Shift { get; }
 
-        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdShImm(inst, address, opCode, false);
-        public new static OpCode CreateT32(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdShImm(inst, address, opCode, true);
+        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdShImm(inst, address, opCode);
 
-        public OpCode32SimdShImm(InstDescriptor inst, ulong address, int opCode, bool isThumb) : base(inst, address, opCode, isThumb)
+        public OpCode32SimdShImm(InstDescriptor inst, ulong address, int opCode) : base(inst, address, opCode)
         {
             int imm6 = (opCode >> 16) & 0x3f;
             int limm6 = ((opCode >> 1) & 0x40) | imm6;

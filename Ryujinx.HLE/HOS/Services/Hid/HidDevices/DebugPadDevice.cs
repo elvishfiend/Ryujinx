@@ -1,6 +1,3 @@
-using Ryujinx.HLE.HOS.Services.Hid.Types.SharedMemory.Common;
-using Ryujinx.HLE.HOS.Services.Hid.Types.SharedMemory.DebugPad;
-
 namespace Ryujinx.HLE.HOS.Services.Hid
 {
     public class DebugPadDevice : BaseDevice
@@ -9,20 +6,20 @@ namespace Ryujinx.HLE.HOS.Services.Hid
 
         public void Update()
         {
-            ref RingLifo<DebugPadState> lifo = ref _device.Hid.SharedMemory.DebugPad;
+            ref ShMemDebugPad debugPad = ref _device.Hid.SharedMemory.DebugPad;
 
-            ref DebugPadState previousEntry = ref lifo.GetCurrentEntryRef();
+            int currentIndex = UpdateEntriesHeader(ref debugPad.Header, out int previousIndex);
 
-            DebugPadState newState = new DebugPadState();
-
-            if (Active)
+            if (!Active)
             {
-                // TODO: This is a debug device only present in dev environment, do we want to support it?
+                return;
             }
 
-            newState.SamplingNumber = previousEntry.SamplingNumber + 1;
+            ref DebugPadEntry currentEntry = ref debugPad.Entries[currentIndex];
+            DebugPadEntry previousEntry = debugPad.Entries[previousIndex];
 
-            lifo.Write(ref newState);
+            currentEntry.SampleTimestamp = previousEntry.SampleTimestamp + 1;
+            currentEntry.SampleTimestamp2 = previousEntry.SampleTimestamp2 + 1;
         }
     }
 }

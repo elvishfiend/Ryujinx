@@ -8,8 +8,6 @@ namespace Ryujinx.Graphics.Video
         Plane UPlane { get; }
         Plane VPlane { get; }
 
-        FrameField Field { get; }
-
         int Width { get; }
         int Height { get; }
         int Stride { get; }

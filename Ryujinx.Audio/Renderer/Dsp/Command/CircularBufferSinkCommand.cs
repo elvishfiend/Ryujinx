@@ -1,5 +1,23 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Renderer.Parameter.Sink;
 using Ryujinx.Audio.Renderer.Server.MemoryPool;
+using System;
 using System.Diagnostics;
 
 namespace Ryujinx.Audio.Renderer.Dsp.Command
@@ -12,7 +30,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         public CommandType CommandType => CommandType.CircularBufferSink;
 
-        public uint EstimatedProcessingTime { get; set; }
+        public ulong EstimatedProcessingTime { get; set; }
 
         public ushort[] Input { get; }
         public uint InputCount { get; }
@@ -51,23 +69,20 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
             {
                 for (int i = 0; i < InputCount; i++)
                 {
-                    unsafe
+                    ReadOnlySpan<float> inputBuffer = context.GetBuffer(Input[i]);
+
+                    ulong targetOffset = CircularBuffer + currentOffset;
+
+                    for (int y = 0; y < context.SampleCount; y++)
                     {
-                        float* inputBuffer = (float*)context.GetBufferPointer(Input[i]);
+                        context.MemoryManager.Write(targetOffset + (ulong)y * targetChannelCount, PcmHelper.Saturate(inputBuffer[y]));
+                    }
 
-                        ulong targetOffset = CircularBuffer + currentOffset;
+                    currentOffset += context.SampleCount * targetChannelCount;
 
-                        for (int y = 0; y < context.SampleCount; y++)
-                        {
-                            context.MemoryManager.Write(targetOffset + (ulong)y * targetChannelCount, PcmHelper.Saturate(inputBuffer[y]));
-                        }
-
-                        currentOffset += context.SampleCount * targetChannelCount;
-
-                        if (currentOffset >= CircularBufferSize)
-                        {
-                            currentOffset = 0;
-                        }
+                    if (currentOffset >= CircularBufferSize)
+                    {
+                        currentOffset = 0;
                     }
                 }
             }

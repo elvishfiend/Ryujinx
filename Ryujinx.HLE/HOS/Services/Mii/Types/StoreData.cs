@@ -1,12 +1,11 @@
 ﻿using LibHac.Common;
 using Ryujinx.HLE.Utilities;
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Mii.Types
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Size)]
+    [StructLayout(LayoutKind.Sequential, Pack = 4, Size = Size)]
     struct StoreData : IStoredData<StoreData>
     {
         public const int Size = 0x44;
@@ -50,35 +49,36 @@ namespace Ryujinx.HLE.HOS.Services.Mii.Types
 
         public bool IsValidDataCrc()
         {
-            return Helper.CalculateCrc16(AsSpanWithoutDeviceCrc(), 0, false) == 0;
+            return DataCrc == CalculateDataCrc();
         }
 
         public bool IsValidDeviceCrc()
         {
-            UInt128 deviceId = Helper.GetDeviceId();
-
-            ushort deviceIdCrc16 = Helper.CalculateCrc16(SpanHelpers.AsByteSpan(ref deviceId), 0, false);
-
-            return Helper.CalculateCrc16(AsSpan(), deviceIdCrc16, false) == 0;
+            return DeviceCrc == CalculateDeviceCrc();
         }
 
         private ushort CalculateDataCrc()
         {
-            return Helper.CalculateCrc16(AsSpanWithoutDeviceCrc(), 0, true);
+            return Helper.CalculateCrc16BE(AsSpanWithoutCrc());
         }
 
         private ushort CalculateDeviceCrc()
         {
             UInt128 deviceId = Helper.GetDeviceId();
 
-            ushort deviceIdCrc16 = Helper.CalculateCrc16(SpanHelpers.AsByteSpan(ref deviceId), 0, false);
+            ushort deviceIdCrc16 = Helper.CalculateCrc16BE(SpanHelpers.AsByteSpan(ref deviceId));
 
-            return Helper.CalculateCrc16(AsSpan(), deviceIdCrc16, true);
+            return Helper.CalculateCrc16BE(AsSpanWithoutDeviceCrc(), deviceIdCrc16);
         }
 
         private ReadOnlySpan<byte> AsSpan()
         {
             return MemoryMarshal.AsBytes(SpanHelpers.CreateReadOnlySpan(in this, 1));
+        }
+
+        private ReadOnlySpan<byte> AsSpanWithoutCrc()
+        {
+            return AsSpan().Slice(0, Size - 4);
         }
 
         private ReadOnlySpan<byte> AsSpanWithoutDeviceCrc()

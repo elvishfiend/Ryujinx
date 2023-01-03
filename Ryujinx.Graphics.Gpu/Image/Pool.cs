@@ -1,7 +1,7 @@
+using Ryujinx.Common;
 using Ryujinx.Cpu.Tracking;
 using Ryujinx.Graphics.Gpu.Memory;
 using System;
-using System.Runtime.InteropServices;
 
 namespace Ryujinx.Graphics.Gpu.Image
 {
@@ -15,9 +15,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         protected const int DescriptorSize = 0x20;
 
         protected GpuContext Context;
-        protected PhysicalMemory PhysicalMemory;
-        protected int SequenceNumber;
-        protected int ModifiedSequenceNumber;
 
         protected T1[] Items;
         protected T2[] DescriptorCache;
@@ -43,20 +40,9 @@ namespace Ryujinx.Graphics.Gpu.Image
         private readonly CpuMultiRegionHandle _memoryTracking;
         private readonly Action<ulong, ulong> _modifiedDelegate;
 
-        private int _modifiedSequenceOffset;
-        private bool _modified;
-
-        /// <summary>
-        /// Creates a new instance of the GPU resource pool.
-        /// </summary>
-        /// <param name="context">GPU context that the pool belongs to</param>
-        /// <param name="physicalMemory">Physical memory where the resource descriptors are mapped</param>
-        /// <param name="address">Address of the pool in physical memory</param>
-        /// <param name="maximumId">Maximum index of an item on the pool (inclusive)</param>
-        public Pool(GpuContext context, PhysicalMemory physicalMemory, ulong address, int maximumId)
+        public Pool(GpuContext context, ulong address, int maximumId)
         {
-            Context = context;
-            PhysicalMemory = physicalMemory;
+            Context   = context;
             MaximumId = maximumId;
 
             int count = maximumId + 1;
@@ -69,10 +55,10 @@ namespace Ryujinx.Graphics.Gpu.Image
             Address = address;
             Size    = size;
 
-            _memoryTracking = physicalMemory.BeginGranularTracking(address, size);
-            _memoryTracking.RegisterPreciseAction(address, size, PreciseAction);
+            _memoryTracking = context.PhysicalMemory.BeginGranularTracking(address, size);
             _modifiedDelegate = RegionModified;
         }
+
 
         /// <summary>
         /// Gets the descriptor for a given ID.
@@ -81,17 +67,7 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// <returns>The descriptor</returns>
         public T2 GetDescriptor(int id)
         {
-            return PhysicalMemory.Read<T2>(Address + (ulong)id * DescriptorSize);
-        }
-
-        /// <summary>
-        /// Gets a reference to the descriptor for a given ID.
-        /// </summary>
-        /// <param name="id">ID of the descriptor. This is effectively a zero-based index</param>
-        /// <returns>A reference to the descriptor</returns>
-        public ref readonly T2 GetDescriptorRef(int id)
-        {
-            return ref MemoryMarshal.Cast<byte, T2>(PhysicalMemory.GetSpan(Address + (ulong)id * DescriptorSize, DescriptorSize))[0];
+            return Context.PhysicalMemory.Read<T2>(Address + (ulong)id * DescriptorSize);
         }
 
         /// <summary>
@@ -102,29 +78,13 @@ namespace Ryujinx.Graphics.Gpu.Image
         public abstract T1 Get(int id);
 
         /// <summary>
-        /// Checks if a given ID is valid and inside the range of the pool.
-        /// </summary>
-        /// <param name="id">ID of the descriptor. This is effectively a zero-based index</param>
-        /// <returns>True if the specified ID is valid, false otherwise</returns>
-        public bool IsValidId(int id)
-        {
-            return (uint)id <= MaximumId;
-        }
-
-        /// <summary>
         /// Synchronizes host memory with guest memory.
         /// This causes invalidation of pool entries,
         /// if a modification of entries by the CPU is detected.
         /// </summary>
         public void SynchronizeMemory()
         {
-            _modified = false;
             _memoryTracking.QueryModified(_modifiedDelegate);
-
-            if (_modified)
-            {
-                UpdateModifiedSequence();
-            }
         }
 
         /// <summary>
@@ -134,8 +94,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// <param name="mSize">Size of the modified region</param>
         private void RegionModified(ulong mAddress, ulong mSize)
         {
-            _modified = true;
-
             if (mAddress < Address)
             {
                 mAddress = Address;
@@ -149,42 +107,6 @@ namespace Ryujinx.Graphics.Gpu.Image
             }
 
             InvalidateRangeImpl(mAddress, mSize);
-        }
-
-        /// <summary>
-        /// Updates the modified sequence number using the current sequence number and offset,
-        /// indicating that it has been modified.
-        /// </summary>
-        protected void UpdateModifiedSequence()
-        {
-            ModifiedSequenceNumber = SequenceNumber + _modifiedSequenceOffset;
-        }
-
-        /// <summary>
-        /// An action to be performed when a precise memory access occurs to this resource.
-        /// Makes sure that the dirty flags are checked.
-        /// </summary>
-        /// <param name="address">Address of the memory action</param>
-        /// <param name="size">Size in bytes</param>
-        /// <param name="write">True if the access was a write, false otherwise</param>
-        private bool PreciseAction(ulong address, ulong size, bool write)
-        {
-            if (write && Context.SequenceNumber == SequenceNumber)
-            {
-                if (ModifiedSequenceNumber == SequenceNumber + _modifiedSequenceOffset)
-                {
-                    // The modified sequence number is offset when PreciseActions occur so that
-                    // users checking it will see an increment and know the pool has changed since
-                    // their last look, even though the main SequenceNumber has not been changed.
-
-                    _modifiedSequenceOffset++;
-                }
-
-                // Force the pool to be checked again the next time it is used.
-                SequenceNumber--;
-            }
-
-            return false;
         }
 
         protected abstract void InvalidateRangeImpl(ulong address, ulong size);

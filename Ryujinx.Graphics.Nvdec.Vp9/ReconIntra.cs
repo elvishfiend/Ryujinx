@@ -1,6 +1,5 @@
 ﻿using Ryujinx.Graphics.Nvdec.Vp9.Common;
 using Ryujinx.Graphics.Nvdec.Vp9.Types;
-using System;
 using static Ryujinx.Graphics.Nvdec.Vp9.Dsp.IntraPred;
 
 namespace Ryujinx.Graphics.Nvdec.Vp9
@@ -25,7 +24,7 @@ namespace Ryujinx.Graphics.Nvdec.Vp9
         private const int NeedAbove = 1 << 2;
         private const int NeedAboveRight = 1 << 3;
 
-        private static ReadOnlySpan<byte> ExtendModes => new byte[]
+        private static readonly byte[] ExtendModes = new byte[]
         {
             NeedAbove | NeedLeft,  // DC
             NeedAbove,             // V

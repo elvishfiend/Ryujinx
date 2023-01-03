@@ -3,7 +3,7 @@ using System.Buffers;
 
 namespace Ryujinx.Memory
 {
-    public unsafe class NativeMemoryManager<T> : MemoryManager<T> where T : unmanaged
+    unsafe class NativeMemoryManager<T> : MemoryManager<T> where T : unmanaged
     {
         private readonly T* _pointer;
         private readonly int _length;

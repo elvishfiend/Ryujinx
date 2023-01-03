@@ -1,10 +1,11 @@
 ﻿using Ryujinx.Common.Collections;
 using System.Collections.Generic;
+using Ryujinx.Common;
 using System;
 using Ryujinx.Graphics.Gpu.Memory;
 using Ryujinx.Common.Logging;
 
-namespace Ryujinx.HLE.HOS.Services.Nv
+namespace Ryujinx.HLE.HOS.Services.Nv.NvDrvServices
 {
     class NvMemoryAllocator
     {
@@ -197,7 +198,7 @@ namespace Ryujinx.HLE.HOS.Services.Nv
                 {
                     bool reachedEndOfAddresses = false;
                     ulong targetAddress;
-                    if (start == DefaultStart)
+                    if(start == DefaultStart)
                     {
                         Logger.Debug?.Print(LogClass.ServiceNv, $"Target address set to start of the last available range: 0x{_list.Last.Value:X}.");
                         targetAddress = _list.Last.Value;
@@ -300,7 +301,7 @@ namespace Ryujinx.HLE.HOS.Services.Nv
                 freeAddressStartPosition = floorAddress;
                 if (floorAddress != InvalidAddress)
                 {
-                    return !(gpuVa >= floorAddress && ((gpuVa + size) <= _tree.Get(floorAddress)));
+                    return !(gpuVa >= floorAddress && ((gpuVa + size) < _tree.Get(floorAddress)));
                 }
             }
             return true;

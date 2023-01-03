@@ -1,41 +1,37 @@
-﻿using LibHac;
-using LibHac.Common;
-using LibHac.Sf;
+﻿using System;
+using LibHac;
 
 namespace Ryujinx.HLE.HOS.Services.Fs
 {
-    class ISaveDataInfoReader : DisposableIpcService
+    class ISaveDataInfoReader : IpcService, IDisposable
     {
-        private SharedRef<LibHac.FsSrv.Sf.ISaveDataInfoReader> _baseReader;
+        private ReferenceCountedDisposable<LibHac.FsSrv.ISaveDataInfoReader> _baseReader;
 
-        public ISaveDataInfoReader(ref SharedRef<LibHac.FsSrv.Sf.ISaveDataInfoReader> baseReader)
+        public ISaveDataInfoReader(ReferenceCountedDisposable<LibHac.FsSrv.ISaveDataInfoReader> baseReader)
         {
-            _baseReader = SharedRef<LibHac.FsSrv.Sf.ISaveDataInfoReader>.CreateMove(ref baseReader);
+            _baseReader = baseReader;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // ReadSaveDataInfo() -> (u64, buffer<unknown, 6>)
         public ResultCode ReadSaveDataInfo(ServiceCtx context)
         {
-            ulong bufferAddress = context.Request.ReceiveBuff[0].Position;
-            ulong bufferLen = context.Request.ReceiveBuff[0].Size;
+            long bufferPosition = context.Request.ReceiveBuff[0].Position;
+            long bufferLen      = context.Request.ReceiveBuff[0].Size;
 
-            using (var region = context.Memory.GetWritableRegion(bufferAddress, (int)bufferLen, true))
-            {
-                Result result = _baseReader.Get.Read(out long readCount, new OutBuffer(region.Memory.Span));
+            byte[] infoBuffer = new byte[bufferLen];
 
-                context.ResponseData.Write(readCount);
+            Result result = _baseReader.Target.Read(out long readCount, infoBuffer);
 
-                return (ResultCode)result.Value;
-            }
+            context.Memory.Write((ulong)bufferPosition, infoBuffer);
+            context.ResponseData.Write(readCount);
+
+            return (ResultCode)result.Value;
         }
 
-        protected override void Dispose(bool isDisposing)
+        public void Dispose()
         {
-            if (isDisposing)
-            {
-                _baseReader.Destroy();
-            }
+            _baseReader.Dispose();
         }
     }
 }

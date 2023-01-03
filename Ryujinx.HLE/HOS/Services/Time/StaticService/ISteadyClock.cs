@@ -1,5 +1,4 @@
 using Ryujinx.Common;
-using Ryujinx.Cpu;
 using Ryujinx.HLE.HOS.Services.Time.Clock;
 
 namespace Ryujinx.HLE.HOS.Services.Time.StaticService
@@ -17,7 +16,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             _bypassUninitializedClock = bypassUninitializedClock;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetCurrentTimePoint() -> nn::time::SteadyClockTimePoint
         public ResultCode GetCurrentTimePoint(ServiceCtx context)
         {
@@ -26,16 +25,14 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
                 return ResultCode.UninitializedClock;
             }
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            SteadyClockTimePoint currentTimePoint = _steadyClock.GetCurrentTimePoint(tickSource);
+            SteadyClockTimePoint currentTimePoint = _steadyClock.GetCurrentTimePoint(context.Thread);
 
             context.ResponseData.WriteStruct(currentTimePoint);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // GetTestOffset() -> nn::TimeSpanType
         public ResultCode GetTestOffset(ServiceCtx context)
         {
@@ -49,7 +46,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // SetTestOffset(nn::TimeSpanType)
         public ResultCode SetTestOffset(ServiceCtx context)
         {
@@ -70,7 +67,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(100)] // 2.0.0+
+        [Command(100)] // 2.0.0+
         // GetRtcValue() -> u64
         public ResultCode GetRtcValue(ServiceCtx context)
         {
@@ -89,7 +86,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return result;
         }
 
-        [CommandHipc(101)] // 2.0.0+
+        [Command(101)] // 2.0.0+
         // IsRtcResetDetected() -> bool
         public ResultCode IsRtcResetDetected(ServiceCtx context)
         {
@@ -103,7 +100,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(102)] // 2.0.0+
+        [Command(102)] // 2.0.0+
         // GetSetupResultValue() -> u32
         public ResultCode GetSetupResultValue(ServiceCtx context)
         {
@@ -117,7 +114,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(200)] // 3.0.0+
+        [Command(200)] // 3.0.0+
         // GetInternalOffset() -> nn::TimeSpanType
         public ResultCode GetInternalOffset(ServiceCtx context)
         {
@@ -131,7 +128,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(201)] // 3.0.0-3.0.2
+        [Command(201)] // 3.0.0-3.0.2
         // SetInternalOffset(nn::TimeSpanType)
         public ResultCode SetInternalOffset(ServiceCtx context)
         {

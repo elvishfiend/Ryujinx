@@ -1,5 +1,4 @@
 ﻿using Ryujinx.Common;
-using Ryujinx.Cpu;
 using Ryujinx.HLE.Exceptions;
 using Ryujinx.HLE.HOS.Ipc;
 using Ryujinx.HLE.HOS.Kernel.Common;
@@ -7,6 +6,7 @@ using Ryujinx.HLE.HOS.Services.Time.Clock;
 using Ryujinx.HLE.Utilities;
 using System;
 using System.IO;
+using System.Text;
 
 namespace Ryujinx.HLE.HOS.Services.Time
 {
@@ -22,7 +22,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             _automaticCorrectionEvent = 0;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetUserStaticService() -> object<nn::timesrv::detail::service::IStaticService>
         public ResultCode GetUserStaticService(ServiceCtx context)
         {
@@ -31,7 +31,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(5)]
+        [Command(5)]
         // GetAdminStaticService() -> object<nn::timesrv::detail::service::IStaticService>
         public ResultCode GetAdminStaticService(ServiceCtx context)
         {
@@ -40,7 +40,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(6)]
+        [Command(6)]
         // GetRepairStaticService() -> object<nn::timesrv::detail::service::IStaticService>
         public ResultCode GetRepairStaticService(ServiceCtx context)
         {
@@ -49,7 +49,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(9)]
+        [Command(9)]
         // GetManufactureStaticService() -> object<nn::timesrv::detail::service::IStaticService>
         public ResultCode GetManufactureStaticService(ServiceCtx context)
         {
@@ -58,7 +58,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(10)]
+        [Command(10)]
         // SetupStandardSteadyClock(nn::util::Uuid clock_source_id, nn::TimeSpanType setup_value,  nn::TimeSpanType internal_offset,  nn::TimeSpanType test_offset, bool is_rtc_reset_detected)
         public ResultCode SetupStandardSteadyClock(ServiceCtx context)
         {
@@ -68,28 +68,24 @@ namespace Ryujinx.HLE.HOS.Services.Time
             TimeSpanType testOffset         = context.RequestData.ReadStruct<TimeSpanType>();
             bool         isRtcResetDetected = context.RequestData.ReadBoolean();
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            _timeManager.SetupStandardSteadyClock(tickSource, clockSourceId, setupValue, internalOffset, testOffset, isRtcResetDetected);
+            _timeManager.SetupStandardSteadyClock(context.Thread, clockSourceId, setupValue, internalOffset, testOffset, isRtcResetDetected);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(11)]
+        [Command(11)]
         // SetupStandardLocalSystemClock(nn::time::SystemClockContext context, nn::time::PosixTime posix_time)
         public ResultCode SetupStandardLocalSystemClock(ServiceCtx context)
         {
             SystemClockContext clockContext = context.RequestData.ReadStruct<SystemClockContext>();
             long               posixTime    = context.RequestData.ReadInt64();
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            _timeManager.SetupStandardLocalSystemClock(tickSource, clockContext, posixTime);
+            _timeManager.SetupStandardLocalSystemClock(context.Thread, clockContext, posixTime);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(12)]
+        [Command(12)]
         // SetupStandardNetworkSystemClock(nn::time::SystemClockContext context, nn::TimeSpanType sufficient_accuracy)
         public ResultCode SetupStandardNetworkSystemClock(ServiceCtx context)
         {
@@ -101,7 +97,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(13)]
+        [Command(13)]
         // SetupStandardUserSystemClock(bool automatic_correction_enabled, nn::time::SteadyClockTimePoint steady_clock_timepoint)
         public ResultCode SetupStandardUserSystemClock(ServiceCtx context)
         {
@@ -111,27 +107,25 @@ namespace Ryujinx.HLE.HOS.Services.Time
 
             SteadyClockTimePoint steadyClockTimePoint = context.RequestData.ReadStruct<SteadyClockTimePoint>();
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            _timeManager.SetupStandardUserSystemClock(tickSource, isAutomaticCorrectionEnabled, steadyClockTimePoint);
+            _timeManager.SetupStandardUserSystemClock(context.Thread, isAutomaticCorrectionEnabled, steadyClockTimePoint);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(14)]
+        [Command(14)]
         // SetupTimeZoneManager(nn::time::LocationName location_name, nn::time::SteadyClockTimePoint timezone_update_timepoint, u32 total_location_name_count, nn::time::TimeZoneRuleVersion timezone_rule_version, buffer<nn::time::TimeZoneBinary, 0x21> timezone_binary)
         public ResultCode SetupTimeZoneManager(ServiceCtx context)
         {
-            string               locationName            = StringUtils.ReadInlinedAsciiString(context.RequestData, 0x24);
+            string               locationName            = Encoding.ASCII.GetString(context.RequestData.ReadBytes(0x24)).TrimEnd('\0');
             SteadyClockTimePoint timeZoneUpdateTimePoint = context.RequestData.ReadStruct<SteadyClockTimePoint>();
             uint                 totalLocationNameCount  = context.RequestData.ReadUInt32();
             UInt128              timeZoneRuleVersion     = context.RequestData.ReadStruct<UInt128>();
 
-            (ulong bufferPosition, ulong bufferSize) = context.Request.GetBufferType0x21();
+            (long bufferPosition, long bufferSize) = context.Request.GetBufferType0x21();
 
             byte[] temp = new byte[bufferSize];
 
-            context.Memory.Read(bufferPosition, temp);
+            context.Memory.Read((ulong)bufferPosition, temp);
 
             using (MemoryStream timeZoneBinaryStream = new MemoryStream(temp))
             {
@@ -141,7 +135,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(15)]
+        [Command(15)]
         // SetupEphemeralNetworkSystemClock()
         public ResultCode SetupEphemeralNetworkSystemClock(ServiceCtx context)
         {
@@ -150,7 +144,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(50)]
+        [Command(50)]
         // Unknown50() -> handle<copy>
         public ResultCode Unknown50(ServiceCtx context)
         {
@@ -158,7 +152,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             throw new ServiceNotImplementedException(this, context);
         }
 
-        [CommandHipc(51)]
+        [Command(51)]
         // Unknown51() -> handle<copy>
         public ResultCode Unknown51(ServiceCtx context)
         {
@@ -166,7 +160,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             throw new ServiceNotImplementedException(this, context);
         }
 
-        [CommandHipc(52)]
+        [Command(52)]
         // Unknown52() -> handle<copy>
         public ResultCode Unknown52(ServiceCtx context)
         {
@@ -174,7 +168,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             throw new ServiceNotImplementedException(this, context);
         }
 
-        [CommandHipc(60)]
+        [Command(60)]
         // GetStandardUserSystemClockAutomaticCorrectionEvent() -> handle<copy>
         public ResultCode GetStandardUserSystemClockAutomaticCorrectionEvent(ServiceCtx context)
         {
@@ -191,20 +185,18 @@ namespace Ryujinx.HLE.HOS.Services.Time
             return ResultCode.Success;
         }
 
-        [CommandHipc(100)]
+        [Command(100)]
         // SetStandardSteadyClockRtcOffset(nn::TimeSpanType rtc_offset)
         public ResultCode SetStandardSteadyClockRtcOffset(ServiceCtx context)
         {
             TimeSpanType rtcOffset = context.RequestData.ReadStruct<TimeSpanType>();
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            _timeManager.SetStandardSteadyClockRtcOffset(tickSource, rtcOffset);
+            _timeManager.SetStandardSteadyClockRtcOffset(context.Thread, rtcOffset);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(200)]
+        [Command(200)]
         // GetAlarmRegistrationEvent() -> handle<copy>
         public ResultCode GetAlarmRegistrationEvent(ServiceCtx context)
         {
@@ -212,7 +204,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             throw new ServiceNotImplementedException(this, context);
         }
 
-        [CommandHipc(201)]
+        [Command(201)]
         // UpdateSteadyAlarms()
         public ResultCode UpdateSteadyAlarms(ServiceCtx context)
         {
@@ -220,7 +212,7 @@ namespace Ryujinx.HLE.HOS.Services.Time
             throw new ServiceNotImplementedException(this, context);
         }
 
-        [CommandHipc(202)]
+        [Command(202)]
         // TryGetNextSteadyClockAlarmSnapshot() -> (bool, nn::time::SteadyClockAlarmSnapshot)
         public ResultCode TryGetNextSteadyClockAlarmSnapshot(ServiceCtx context)
         {

@@ -2,10 +2,9 @@ namespace ARMeilleure.State
 {
     public enum FPRoundingMode
     {
-        ToNearest            = 0, // With ties to even.
+        ToNearest            = 0,
         TowardsPlusInfinity  = 1,
         TowardsMinusInfinity = 2,
-        TowardsZero          = 3,
-        ToNearestAway        = 4 // With ties to away.
+        TowardsZero          = 3
     }
 }

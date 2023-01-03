@@ -12,7 +12,7 @@ using System.Threading;
 
 namespace Ryujinx.HLE.HOS.Services
 {
-    class ServerBase : IDisposable
+    class ServerBase
     {
         // Must be the maximum value used by services (highest one know is the one used by nvservices = 0x8000).
         // Having a size that is too low will cause failures as data copy will fail if the receiving buffer is
@@ -35,18 +35,17 @@ namespace Ryujinx.HLE.HOS.Services
         private readonly List<int> _sessionHandles = new List<int>();
         private readonly List<int> _portHandles = new List<int>();
         private readonly Dictionary<int, IpcService> _sessions = new Dictionary<int, IpcService>();
-        private readonly Dictionary<int, Func<IpcService>> _ports = new Dictionary<int, Func<IpcService>>();
+        private readonly Dictionary<int, IpcService> _ports = new Dictionary<int, IpcService>();
 
         public ManualResetEvent InitDone { get; }
+        public IpcService SmObject { get; set; }
         public string Name { get; }
-        public Func<IpcService> SmObjectFactory { get; }
 
-        public ServerBase(KernelContext context, string name, Func<IpcService> smObjectFactory = null)
+        public ServerBase(KernelContext context, string name)
         {
             InitDone = new ManualResetEvent(false);
-            _context = context;
             Name = name;
-            SmObjectFactory = smObjectFactory;
+            _context = context;
 
             const ProcessCreationFlags flags =
                 ProcessCreationFlags.EnableAslr |
@@ -56,20 +55,17 @@ namespace Ryujinx.HLE.HOS.Services
 
             ProcessCreationInfo creationInfo = new ProcessCreationInfo("Service", 1, 0, 0x8000000, 1, flags, 0, 0);
 
-            KernelStatic.StartInitialProcess(context, creationInfo, DefaultCapabilities, 44, Main);
+            KernelStatic.StartInitialProcess(context, creationInfo, DefaultCapabilities, 44, ServerLoop);
         }
 
-        private void AddPort(int serverPortHandle, Func<IpcService> objectFactory)
+        private void AddPort(int serverPortHandle, IpcService obj)
         {
             _portHandles.Add(serverPortHandle);
-            _ports.Add(serverPortHandle, objectFactory);
+            _ports.Add(serverPortHandle, obj);
         }
 
         public void AddSessionObj(KServerSession serverSession, IpcService obj)
         {
-            // Ensure that the sever loop is running.
-            InitDone.WaitOne();
-
             _selfProcess.HandleTable.GenerateHandle(serverSession, out int serverSessionHandle);
             AddSessionObj(serverSessionHandle, obj);
         }
@@ -80,27 +76,26 @@ namespace Ryujinx.HLE.HOS.Services
             _sessions.Add(serverSessionHandle, obj);
         }
 
-        private void Main()
-        {
-            ServerLoop();
-        }
-
         private void ServerLoop()
         {
             _selfProcess = KernelStatic.GetCurrentProcess();
 
-            if (SmObjectFactory != null)
+            if (SmObject != null)
             {
-                _context.Syscall.ManageNamedPort(out int serverPortHandle, "sm:", 50);
+                _context.Syscall.ManageNamedPort("sm:", 50, out int serverPortHandle);
 
-                AddPort(serverPortHandle, SmObjectFactory);
+                AddPort(serverPortHandle, SmObject);
+
+                InitDone.Set();
             }
-
-            InitDone.Set();
+            else
+            {
+                InitDone.Dispose();
+            }
 
             KThread thread = KernelStatic.GetCurrentThread();
             ulong messagePtr = thread.TlsAddress;
-            _context.Syscall.SetHeapSize(out ulong heapAddr, 0x200000);
+            _context.Syscall.SetHeapSize(0x200000, out ulong heapAddr);
 
             _selfProcess.CpuMemory.Write(messagePtr + 0x0, 0);
             _selfProcess.CpuMemory.Write(messagePtr + 0x4, 2 << 10);
@@ -118,7 +113,7 @@ namespace Ryujinx.HLE.HOS.Services
                 sessionHandles.CopyTo(handles, portHandles.Length);
 
                 // We still need a timeout here to allow the service to pick up and listen new sessions...
-                var rc = _context.Syscall.ReplyAndReceive(out int signaledIndex, handles, replyTargetHandle, 1000000L);
+                var rc = _context.Syscall.ReplyAndReceive(handles, replyTargetHandle, 1000000L, out int signaledIndex);
 
                 thread.HandlePostSyscall();
 
@@ -144,11 +139,9 @@ namespace Ryujinx.HLE.HOS.Services
                     if (rc == KernelResult.Success)
                     {
                         // We got a new connection, accept the session to allow servicing future requests.
-                        if (_context.Syscall.AcceptSession(out int serverSessionHandle, handles[signaledIndex]) == KernelResult.Success)
+                        if (_context.Syscall.AcceptSession(handles[signaledIndex], out int serverSessionHandle) == KernelResult.Success)
                         {
-                            IpcService obj = _ports[handles[signaledIndex]].Invoke();
-
-                            AddSessionObj(serverSessionHandle, obj);
+                            AddSessionObj(serverSessionHandle, _ports[handles[signaledIndex]]);
                         }
                     }
 
@@ -157,8 +150,6 @@ namespace Ryujinx.HLE.HOS.Services
                     _selfProcess.CpuMemory.Write(messagePtr + 0x8, heapAddr | ((ulong)PointerBufferSize << 48));
                 }
             }
-
-            Dispose();
         }
 
         private bool Process(int serverSessionHandle, ulong recvListAddr)
@@ -189,27 +180,26 @@ namespace Ryujinx.HLE.HOS.Services
             {
                 for (int i = 0; i < request.RecvListBuff.Count; i++)
                 {
-                    ulong size = (ulong)BinaryPrimitives.ReadInt16LittleEndian(request.RawData.AsSpan(sizesOffset + i * 2, 2));
+                    int size = BinaryPrimitives.ReadInt16LittleEndian(request.RawData.AsSpan().Slice(sizesOffset + i * 2, 2));
 
-                    response.PtrBuff.Add(new IpcPtrBuffDesc(tempAddr, (uint)i, size));
+                    response.PtrBuff.Add(new IpcPtrBuffDesc((long)tempAddr, i, size));
 
-                    request.RecvListBuff[i] = new IpcRecvListBuffDesc(tempAddr, size);
+                    request.RecvListBuff[i] = new IpcRecvListBuffDesc((long)tempAddr, size);
 
-                    tempAddr += size;
+                    tempAddr += (ulong)size;
                 }
             }
 
             bool shouldReply = true;
-            bool isTipcCommunication = false;
 
             using (MemoryStream raw = new MemoryStream(request.RawData))
             {
                 BinaryReader reqReader = new BinaryReader(raw);
 
-                if (request.Type == IpcMessageType.HipcRequest ||
-                    request.Type == IpcMessageType.HipcRequestWithContext)
+                if (request.Type == IpcMessageType.Request ||
+                    request.Type == IpcMessageType.RequestWithContext)
                 {
-                    response.Type = IpcMessageType.HipcResponse;
+                    response.Type = IpcMessageType.Response;
 
                     using (MemoryStream resMs = new MemoryStream())
                     {
@@ -225,13 +215,13 @@ namespace Ryujinx.HLE.HOS.Services
                             reqReader,
                             resWriter);
 
-                        _sessions[serverSessionHandle].CallHipcMethod(context);
+                        _sessions[serverSessionHandle].CallMethod(context);
 
                         response.RawData = resMs.ToArray();
                     }
                 }
-                else if (request.Type == IpcMessageType.HipcControl ||
-                         request.Type == IpcMessageType.HipcControlWithContext)
+                else if (request.Type == IpcMessageType.Control ||
+                         request.Type == IpcMessageType.ControlWithContext)
                 {
                     uint magic = (uint)reqReader.ReadUInt64();
                     uint cmdId = (uint)reqReader.ReadUInt64();
@@ -251,7 +241,7 @@ namespace Ryujinx.HLE.HOS.Services
                         case 4:
                             int unknown = reqReader.ReadInt32();
 
-                            _context.Syscall.CreateSession(out int dupServerSessionHandle, out int dupClientSessionHandle, false, 0);
+                            _context.Syscall.CreateSession(false, 0, out int dupServerSessionHandle, out int dupClientSessionHandle);
 
                             AddSessionObj(dupServerSessionHandle, _sessions[serverSessionHandle]);
 
@@ -264,7 +254,7 @@ namespace Ryujinx.HLE.HOS.Services
                         default: throw new NotImplementedException(cmdId.ToString());
                     }
                 }
-                else if (request.Type == IpcMessageType.HipcCloseSession || request.Type == IpcMessageType.TipcCloseSession)
+                else if (request.Type == IpcMessageType.CloseSession)
                 {
                     _context.Syscall.CloseHandle(serverSessionHandle);
                     _sessionHandles.Remove(serverSessionHandle);
@@ -276,45 +266,12 @@ namespace Ryujinx.HLE.HOS.Services
                     _sessions.Remove(serverSessionHandle);
                     shouldReply = false;
                 }
-                // If the type is past 0xF, we are using TIPC
-                else if (request.Type > IpcMessageType.TipcCloseSession)
-                {
-                    isTipcCommunication = true;
-
-                    // Response type is always the same as request on TIPC.
-                    response.Type = request.Type;
-
-                    using (MemoryStream resMs = new MemoryStream())
-                    {
-                        BinaryWriter resWriter = new BinaryWriter(resMs);
-
-                        ServiceCtx context = new ServiceCtx(
-                            _context.Device,
-                            process,
-                            process.CpuMemory,
-                            thread,
-                            request,
-                            response,
-                            reqReader,
-                            resWriter);
-
-                        _sessions[serverSessionHandle].CallTipcMethod(context);
-
-                        response.RawData = resMs.ToArray();
-                    }
-
-                    process.CpuMemory.Write(messagePtr, response.GetBytesTipc());
-                }
                 else
                 {
                     throw new NotImplementedException(request.Type.ToString());
                 }
 
-                if (!isTipcCommunication)
-                {
-                    process.CpuMemory.Write(messagePtr, response.GetBytes((long)messagePtr, recvListAddr | ((ulong)PointerBufferSize << 48)));
-                }
-
+                process.CpuMemory.Write(messagePtr, response.GetBytes((long)messagePtr, recvListAddr | ((ulong)PointerBufferSize << 48)));
                 return shouldReply;
             }
         }
@@ -336,7 +293,7 @@ namespace Ryujinx.HLE.HOS.Services
 
         private static IpcMessage FillResponse(IpcMessage response, long result, byte[] data = null)
         {
-            response.Type = IpcMessageType.HipcResponse;
+            response.Type = IpcMessageType.Response;
 
             using (MemoryStream ms = new MemoryStream())
             {
@@ -354,31 +311,6 @@ namespace Ryujinx.HLE.HOS.Services
             }
 
             return response;
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                foreach (IpcService service in _sessions.Values)
-                {
-                    if (service is IDisposable disposableObj)
-                    {
-                        disposableObj.Dispose();
-                    }
-
-                    service.DestroyAtExit();
-                }
-
-                _sessions.Clear();
-
-                InitDone.Dispose();
-            }
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
         }
     }
 }

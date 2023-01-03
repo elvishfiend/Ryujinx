@@ -1,6 +1,6 @@
 namespace Ryujinx.HLE.HOS.Services.Hid
 {
-    public enum NpadColor : uint 
+    public enum NpadColor : int 
     {
         BodyGray                                      = 0x828282,
         BodyNeonRed                                   = 0xFF3C28,

@@ -1,112 +1,244 @@
+using Concentus;
+using Concentus.Enums;
+using Concentus.Structs;
 using Ryujinx.HLE.HOS.Services.Audio.Types;
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Audio.HardwareOpusDecoderManager
 {
     class IHardwareOpusDecoder : IpcService
     {
-        private readonly IDecoder _decoder;
-        private readonly OpusDecoderFlags _flags;
+        private int  _sampleRate;
+        private int  _channelsCount;
+        private bool _reset;
 
-        public IHardwareOpusDecoder(int sampleRate, int channelsCount, OpusDecoderFlags flags)
+        private OpusDecoder _decoder;
+
+        public IHardwareOpusDecoder(int sampleRate, int channelsCount)
         {
-            _decoder = new Decoder(sampleRate, channelsCount);
-            _flags = flags;
+            _sampleRate    = sampleRate;
+            _channelsCount = channelsCount;
+            _reset         = false;
+
+            _decoder = new OpusDecoder(sampleRate, channelsCount);
         }
 
-        public IHardwareOpusDecoder(int sampleRate, int channelsCount, int streams, int coupledStreams, OpusDecoderFlags flags, byte[] mapping)
+        private ResultCode GetPacketNumSamples(out int numSamples, byte[] packet)
         {
-            _decoder = new MultiSampleDecoder(sampleRate, channelsCount, streams, coupledStreams, mapping);
-            _flags = flags;
+            int result = OpusPacketInfo.GetNumSamples(_decoder, packet, 0, packet.Length);
+
+            numSamples = result;
+
+            if (result == OpusError.OPUS_INVALID_PACKET)
+            {
+                return ResultCode.OpusInvalidInput;
+            }
+            else if (result == OpusError.OPUS_BAD_ARG)
+            {
+                return ResultCode.OpusInvalidInput;
+            }
+
+            return ResultCode.Success;
         }
 
-        [CommandHipc(0)]
-        // DecodeInterleavedOld(buffer<unknown, 5>) -> (u32, u32, buffer<unknown, 6>)
-        public ResultCode DecodeInterleavedOld(ServiceCtx context)
+        private ResultCode DecodeInterleavedInternal(BinaryReader input, out short[] outPcmData, long outputSize, out uint outConsumed, out int outSamples)
         {
-            return DecodeInterleavedInternal(context, OpusDecoderFlags.None, reset: false, withPerf: false);
-        }
+            outPcmData  = null;
+            outConsumed = 0;
+            outSamples  = 0;
 
-        [CommandHipc(2)]
-        // DecodeInterleavedForMultiStreamOld(buffer<unknown, 5>) -> (u32, u32, buffer<unknown, 6>)
-        public ResultCode DecodeInterleavedForMultiStreamOld(ServiceCtx context)
-        {
-            return DecodeInterleavedInternal(context, OpusDecoderFlags.None, reset: false, withPerf: false);
-        }
+            long streamSize = input.BaseStream.Length;
 
-        [CommandHipc(4)] // 6.0.0+
-        // DecodeInterleavedWithPerfOld(buffer<unknown, 5>) -> (u32, u32, u64, buffer<unknown, 0x46>)
-        public ResultCode DecodeInterleavedWithPerfOld(ServiceCtx context)
-        {
-            return DecodeInterleavedInternal(context, OpusDecoderFlags.None, reset: false, withPerf: true);
-        }
+            if (streamSize < Marshal.SizeOf<OpusPacketHeader>())
+            {
+                return ResultCode.OpusInvalidInput;
+            }
 
-        [CommandHipc(5)] // 6.0.0+
-        // DecodeInterleavedForMultiStreamWithPerfOld(buffer<unknown, 5>) -> (u32, u32, u64, buffer<unknown, 0x46>)
-        public ResultCode DecodeInterleavedForMultiStreamWithPerfOld(ServiceCtx context)
-        {
-            return DecodeInterleavedInternal(context, OpusDecoderFlags.None, reset: false, withPerf: true);
-        }
+            OpusPacketHeader header = OpusPacketHeader.FromStream(input);
 
-        [CommandHipc(6)] // 6.0.0+
-        // DecodeInterleavedWithPerfAndResetOld(bool reset, buffer<unknown, 5>) -> (u32, u32, u64, buffer<unknown, 0x46>)
-        public ResultCode DecodeInterleavedWithPerfAndResetOld(ServiceCtx context)
-        {
-            bool reset = context.RequestData.ReadBoolean();
+            uint totalSize = header.length + (uint)Marshal.SizeOf<OpusPacketHeader>();
 
-            return DecodeInterleavedInternal(context, OpusDecoderFlags.None, reset, withPerf: true);
-        }
+            if (totalSize > streamSize)
+            {
+                return ResultCode.OpusInvalidInput;
+            }
 
-        [CommandHipc(7)] // 6.0.0+
-        // DecodeInterleavedForMultiStreamWithPerfAndResetOld(bool reset, buffer<unknown, 5>) -> (u32, u32, u64, buffer<unknown, 0x46>)
-        public ResultCode DecodeInterleavedForMultiStreamWithPerfAndResetOld(ServiceCtx context)
-        {
-            bool reset = context.RequestData.ReadBoolean();
+            byte[] opusData = input.ReadBytes((int)header.length);
 
-            return DecodeInterleavedInternal(context, OpusDecoderFlags.None, reset, withPerf: true);
-        }
-
-        [CommandHipc(8)] // 7.0.0+
-        // DecodeInterleaved(bool reset, buffer<unknown, 0x45>) -> (u32, u32, u64, buffer<unknown, 0x46>)
-        public ResultCode DecodeInterleaved(ServiceCtx context)
-        {
-            bool reset = context.RequestData.ReadBoolean();
-
-            return DecodeInterleavedInternal(context, _flags, reset, withPerf: true);
-        }
-
-        [CommandHipc(9)] // 7.0.0+
-        // DecodeInterleavedForMultiStream(bool reset, buffer<unknown, 0x45>) -> (u32, u32, u64, buffer<unknown, 0x46>)
-        public ResultCode DecodeInterleavedForMultiStream(ServiceCtx context)
-        {
-            bool reset = context.RequestData.ReadBoolean();
-
-            return DecodeInterleavedInternal(context, _flags, reset, withPerf: true);
-        }
-
-        private ResultCode DecodeInterleavedInternal(ServiceCtx context, OpusDecoderFlags flags, bool reset, bool withPerf)
-        {
-            ulong inPosition     = context.Request.SendBuff[0].Position;
-            ulong inSize         = context.Request.SendBuff[0].Size;
-            ulong outputPosition = context.Request.ReceiveBuff[0].Position;
-            ulong outputSize     = context.Request.ReceiveBuff[0].Size;
-
-            ReadOnlySpan<byte> input = context.Memory.GetSpan(inPosition, (int)inSize);
-
-            ResultCode result = _decoder.DecodeInterleaved(reset, input, out short[] outPcmData, outputSize, out uint outConsumed, out int outSamples);
+            ResultCode result = GetPacketNumSamples(out int numSamples, opusData);
 
             if (result == ResultCode.Success)
             {
-                context.Memory.Write(outputPosition, MemoryMarshal.Cast<short, byte>(outPcmData.AsSpan()));
-
-                context.ResponseData.Write(outConsumed);
-                context.ResponseData.Write(outSamples);
-
-                if (withPerf)
+                if ((uint)numSamples * (uint)_channelsCount * sizeof(short) > outputSize)
                 {
+                    return ResultCode.OpusInvalidInput;
+                }
+
+                outPcmData = new short[numSamples * _channelsCount];
+
+                if (_reset)
+                {
+                    _reset = false;
+
+                    _decoder.ResetState();
+                }
+
+                try
+                {
+                    outSamples  = _decoder.Decode(opusData, 0, opusData.Length, outPcmData, 0, outPcmData.Length / _channelsCount);
+                    outConsumed = totalSize;
+                }
+                catch (OpusException)
+                {
+                    // TODO: as OpusException doesn't provide us the exact error code, this is kind of inaccurate in some cases...
+                    return ResultCode.OpusInvalidInput;
+                }
+            }
+
+            return ResultCode.Success;
+        }
+
+        [Command(0)]
+        // DecodeInterleaved(buffer<unknown, 5>) -> (u32, u32, buffer<unknown, 6>)
+        public ResultCode DecodeInterleavedOriginal(ServiceCtx context)
+        {
+            ResultCode result;
+
+            long inPosition     = context.Request.SendBuff[0].Position;
+            long inSize         = context.Request.SendBuff[0].Size;
+            long outputPosition = context.Request.ReceiveBuff[0].Position;
+            long outputSize     = context.Request.ReceiveBuff[0].Size;
+
+            byte[] buffer = new byte[inSize];
+
+            context.Memory.Read((ulong)inPosition, buffer);
+
+            using (BinaryReader inputStream = new BinaryReader(new MemoryStream(buffer)))
+            {
+                result = DecodeInterleavedInternal(inputStream, out short[] outPcmData, outputSize, out uint outConsumed, out int outSamples);
+
+                if (result == ResultCode.Success)
+                {
+                    byte[] pcmDataBytes = new byte[outPcmData.Length * sizeof(short)];
+                    Buffer.BlockCopy(outPcmData, 0, pcmDataBytes, 0, pcmDataBytes.Length);
+                    context.Memory.Write((ulong)outputPosition, pcmDataBytes);
+
+                    context.ResponseData.Write(outConsumed);
+                    context.ResponseData.Write(outSamples);
+                }
+            }
+
+            return result;
+        }
+
+        [Command(4)] // 6.0.0+
+        // DecodeInterleavedWithPerfOld(buffer<unknown, 5>) -> (u32, u32, u64, buffer<unknown, 0x46>)
+        public ResultCode DecodeInterleavedWithPerfOld(ServiceCtx context)
+        {
+            ResultCode result;
+
+            long inPosition     = context.Request.SendBuff[0].Position;
+            long inSize         = context.Request.SendBuff[0].Size;
+            long outputPosition = context.Request.ReceiveBuff[0].Position;
+            long outputSize     = context.Request.ReceiveBuff[0].Size;
+
+            byte[] buffer = new byte[inSize];
+
+            context.Memory.Read((ulong)inPosition, buffer);
+
+            using (BinaryReader inputStream = new BinaryReader(new MemoryStream(buffer)))
+            {
+                result = DecodeInterleavedInternal(inputStream, out short[] outPcmData, outputSize, out uint outConsumed, out int outSamples);
+
+                if (result == ResultCode.Success)
+                {
+                    byte[] pcmDataBytes = new byte[outPcmData.Length * sizeof(short)];
+                    Buffer.BlockCopy(outPcmData, 0, pcmDataBytes, 0, pcmDataBytes.Length);
+                    context.Memory.Write((ulong)outputPosition, pcmDataBytes);
+
+                    context.ResponseData.Write(outConsumed);
+                    context.ResponseData.Write(outSamples);
+
                     // This is the time the DSP took to process the request, TODO: fill this.
-                    context.ResponseData.Write(0UL);
+                    context.ResponseData.Write(0);
+                }
+            }
+
+            return result;
+        }
+
+        [Command(6)] // 6.0.0+
+        // DecodeInterleavedOld(bool reset, buffer<unknown, 5>) -> (u32, u32, u64, buffer<unknown, 0x46>)
+        public ResultCode DecodeInterleavedOld(ServiceCtx context)
+        {
+            ResultCode result;
+
+            _reset = context.RequestData.ReadBoolean();
+
+            long inPosition     = context.Request.SendBuff[0].Position;
+            long inSize         = context.Request.SendBuff[0].Size;
+            long outputPosition = context.Request.ReceiveBuff[0].Position;
+            long outputSize     = context.Request.ReceiveBuff[0].Size;
+
+            byte[] buffer = new byte[inSize];
+
+            context.Memory.Read((ulong)inPosition, buffer);
+
+            using (BinaryReader inputStream = new BinaryReader(new MemoryStream(buffer)))
+            {
+                result = DecodeInterleavedInternal(inputStream, out short[] outPcmData, outputSize, out uint outConsumed, out int outSamples);
+
+                if (result == ResultCode.Success)
+                {
+                    byte[] pcmDataBytes = new byte[outPcmData.Length * sizeof(short)];
+                    Buffer.BlockCopy(outPcmData, 0, pcmDataBytes, 0, pcmDataBytes.Length);
+                    context.Memory.Write((ulong)outputPosition, pcmDataBytes);
+
+                    context.ResponseData.Write(outConsumed);
+                    context.ResponseData.Write(outSamples);
+
+                    // This is the time the DSP took to process the request, TODO: fill this.
+                    context.ResponseData.Write(0);
+                }
+            }
+
+            return result;
+        }
+
+        [Command(8)] // 7.0.0+
+        // DecodeInterleaved(bool reset, buffer<unknown, 0x45>) -> (u32, u32, u64, buffer<unknown, 0x46>)
+        public ResultCode DecodeInterleaved(ServiceCtx context)
+        {
+            ResultCode result;
+
+            _reset = context.RequestData.ReadBoolean();
+
+            long inPosition     = context.Request.SendBuff[0].Position;
+            long inSize         = context.Request.SendBuff[0].Size;
+            long outputPosition = context.Request.ReceiveBuff[0].Position;
+            long outputSize     = context.Request.ReceiveBuff[0].Size;
+
+            byte[] buffer = new byte[inSize];
+
+            context.Memory.Read((ulong)inPosition, buffer);
+
+            using (BinaryReader inputStream = new BinaryReader(new MemoryStream(buffer)))
+            {
+                result = DecodeInterleavedInternal(inputStream, out short[] outPcmData, outputSize, out uint outConsumed, out int outSamples);
+
+                if (result == ResultCode.Success)
+                {
+                    byte[] pcmDataBytes = new byte[outPcmData.Length * sizeof(short)];
+                    Buffer.BlockCopy(outPcmData, 0, pcmDataBytes, 0, pcmDataBytes.Length);
+                    context.Memory.Write((ulong)outputPosition, pcmDataBytes);
+
+                    context.ResponseData.Write(outConsumed);
+                    context.ResponseData.Write(outSamples);
+
+                    // This is the time the DSP took to process the request, TODO: fill this.
+                    context.ResponseData.Write(0);
                 }
             }
 

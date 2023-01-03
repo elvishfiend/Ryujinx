@@ -41,11 +41,6 @@ namespace Ryujinx.Memory
         /// <summary>
         /// Allow reads, writes, and code execution on the memory region.
         /// </summary>
-        ReadWriteExecute = Read | Write | Execute,
-
-        /// <summary>
-        /// Indicates an invalid protection.
-        /// </summary>
-        Invalid = 255
+        ReadWriteExecute = Read | Write | Execute
     }
 }

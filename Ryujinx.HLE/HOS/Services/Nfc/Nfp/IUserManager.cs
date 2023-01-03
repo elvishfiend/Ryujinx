@@ -1,17 +1,15 @@
-﻿using Ryujinx.HLE.HOS.Services.Nfc.Nfp.NfpManager;
-
-namespace Ryujinx.HLE.HOS.Services.Nfc.Nfp
+﻿namespace Ryujinx.HLE.HOS.Services.Nfc.Nfp
 {
     [Service("nfp:user")]
     class IUserManager : IpcService
     {
         public IUserManager(ServiceCtx context) { }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // CreateUserInterface() -> object<nn::nfp::detail::IUser>
-        public ResultCode CreateUserInterface(ServiceCtx context)
+        public ResultCode GetUserInterface(ServiceCtx context)
         {
-            MakeObject(context, new INfp(NfpPermissionLevel.User));
+            MakeObject(context, new IUser());
 
             return ResultCode.Success;
         }

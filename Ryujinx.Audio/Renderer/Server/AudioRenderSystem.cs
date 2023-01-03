@@ -1,3 +1,20 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Integration;
 using Ryujinx.Audio.Renderer.Common;
 using Ryujinx.Audio.Renderer.Dsp.Command;
@@ -28,35 +45,35 @@ namespace Ryujinx.Audio.Renderer.Server
     {
         private object _lock = new object();
 
-        private AudioRendererRenderingDevice _renderingDevice;
         private AudioRendererExecutionMode _executionMode;
-        private IWritableEvent _systemEvent;
-        private ManualResetEvent _terminationEvent;
-        private MemoryPoolState _dspMemoryPoolState;
-        private VoiceContext _voiceContext;
-        private MixContext _mixContext;
-        private SinkContext _sinkContext;
-        private SplitterContext _splitterContext;
-        private EffectContext _effectContext;
-        private PerformanceManager _performanceManager;
-        private UpsamplerManager _upsamplerManager;
-        private bool _isActive;
-        private BehaviourContext _behaviourContext;
-        private ulong _totalElapsedTicksUpdating;
-        private ulong _totalElapsedTicks;
-        private int _sessionId;
-        private Memory<MemoryPoolState> _memoryPools;
+        private IWritableEvent             _systemEvent;
+        private ManualResetEvent           _terminationEvent;
+        private MemoryPoolState            _dspMemoryPoolState;
+        private VoiceContext               _voiceContext;
+        private MixContext                 _mixContext;
+        private SinkContext                _sinkContext;
+        private SplitterContext            _splitterContext;
+        private EffectContext              _effectContext;
+        private PerformanceManager         _performanceManager;
+        private UpsamplerManager           _upsamplerManager;
+        private bool                       _isActive;
+        private BehaviourContext           _behaviourContext;
+        private ulong                      _totalElapsedTicksUpdating;
+        private ulong                      _totalElapsedTicks;
+        private int                        _sessionId;
+        private Memory<MemoryPoolState>    _memoryPools;
 
-        private uint _sampleRate;
-        private uint _sampleCount;
-        private uint _mixBufferCount;
-        private uint _voiceChannelCountMax;
-        private uint _upsamplerCount;
-        private uint _memoryPoolCount;
-        private uint _processHandle;
+        private uint  _sampleRate;
+        private uint  _sampleCount;
+        private uint  _mixBufferCount;
+        private uint  _voiceChannelCountMax;
+        private uint  _upsamplerCount;
+        private uint  _memoryPoolCount;
+        private uint  _processHandle;
         private ulong _appletResourceId;
 
-        private MemoryHandle _workBufferMemoryPin;
+        private WritableRegion _workBufferRegion;
+        private MemoryHandle   _workBufferMemoryPin;
 
         private Memory<float> _mixBuffer;
         private Memory<float> _depopBuffer;
@@ -64,7 +81,6 @@ namespace Ryujinx.Audio.Renderer.Server
         private uint _renderingTimeLimitPercent;
         private bool _voiceDropEnabled;
         private uint _voiceDropCount;
-        private float _voiceDropParameter;
         private bool _isDspRunningBehind;
 
         private ICommandProcessingTimeEstimator _commandProcessingTimeEstimator;
@@ -78,37 +94,26 @@ namespace Ryujinx.Audio.Renderer.Server
 
         private AudioRendererManager _manager;
 
-        private int _disposeState;
-
         public AudioRenderSystem(AudioRendererManager manager, IWritableEvent systemEvent)
         {
-            _manager = manager;
-            _terminationEvent = new ManualResetEvent(false);
+            _manager            = manager;
+            _terminationEvent   = new ManualResetEvent(false);
             _dspMemoryPoolState = MemoryPoolState.Create(MemoryPoolState.LocationType.Dsp);
-            _voiceContext = new VoiceContext();
-            _mixContext = new MixContext();
-            _sinkContext = new SinkContext();
-            _splitterContext = new SplitterContext();
-            _effectContext = new EffectContext();
+            _voiceContext       = new VoiceContext();
+            _mixContext         = new MixContext();
+            _sinkContext        = new SinkContext();
+            _splitterContext    = new SplitterContext();
+            _effectContext      = new EffectContext();
 
             _commandProcessingTimeEstimator = null;
             _systemEvent = systemEvent;
             _behaviourContext = new BehaviourContext();
 
             _totalElapsedTicksUpdating = 0;
-            _sessionId = 0;
-            _voiceDropParameter = 1.0f;
+            _sessionId                 = 0;
         }
 
-        public ResultCode Initialize(
-            ref AudioRendererConfiguration parameter,
-            uint processHandle,
-            Memory<byte> workBufferMemory,
-            CpuAddress workBuffer,
-            ulong workBufferSize,
-            int sessionId,
-            ulong appletResourceId,
-            IVirtualMemoryManager memoryManager)
+        public ResultCode Initialize(ref AudioRendererConfiguration parameter, uint processHandle, CpuAddress workBuffer, ulong workBufferSize, int sessionId, ulong appletResourceId, IVirtualMemoryManager memoryManager)
         {
             if (!BehaviourContext.CheckValidRevision(parameter.Revision))
             {
@@ -126,29 +131,24 @@ namespace Ryujinx.Audio.Renderer.Server
 
             _behaviourContext.SetUserRevision(parameter.Revision);
 
-            _sampleRate = parameter.SampleRate;
+            _sampleRate  = parameter.SampleRate;
             _sampleCount = parameter.SampleCount;
             _mixBufferCount = parameter.MixBufferCount;
             _voiceChannelCountMax = Constants.VoiceChannelCountMax;
             _upsamplerCount = parameter.SinkCount + parameter.SubMixBufferCount;
             _appletResourceId = appletResourceId;
             _memoryPoolCount = parameter.EffectCount + parameter.VoiceCount * Constants.VoiceWaveBufferCount;
-            _renderingDevice = parameter.RenderingDevice;
             _executionMode = parameter.ExecutionMode;
             _sessionId = sessionId;
             MemoryManager = memoryManager;
 
-            if (memoryManager is IRefCounted rc)
-            {
-                rc.IncrementReferenceCount();
-            }
-
             WorkBufferAllocator workBufferAllocator;
 
-            workBufferMemory.Span.Fill(0);
-            _workBufferMemoryPin = workBufferMemory.Pin();
+            _workBufferRegion = MemoryManager.GetWritableRegion(workBuffer, (int)workBufferSize);
+            _workBufferRegion.Memory.Span.Fill(0);
+            _workBufferMemoryPin = _workBufferRegion.Memory.Pin();
 
-            workBufferAllocator = new WorkBufferAllocator(workBufferMemory);
+            workBufferAllocator = new WorkBufferAllocator(_workBufferRegion.Memory);
 
             PoolMapper poolMapper = new PoolMapper(processHandle, false);
             poolMapper.InitializeSystemPool(ref _dspMemoryPoolState, workBuffer, workBufferSize);
@@ -167,7 +167,7 @@ namespace Ryujinx.Audio.Renderer.Server
                 return ResultCode.WorkBufferTooSmall;
             }
 
-            _depopBuffer = workBufferAllocator.Allocate<float>(BitUtils.AlignUp<ulong>(parameter.MixBufferCount, Constants.BufferAlignment), Constants.BufferAlignment);
+            _depopBuffer = workBufferAllocator.Allocate<float>((ulong)BitUtils.AlignUp(parameter.MixBufferCount, Constants.BufferAlignment), Constants.BufferAlignment);
 
             if (_depopBuffer.IsEmpty)
             {
@@ -213,7 +213,7 @@ namespace Ryujinx.Audio.Renderer.Server
             {
                 ref VoiceChannelResource voiceChannelResource = ref voiceChannelResources.Span[(int)id];
 
-                voiceChannelResource.Id = id;
+                voiceChannelResource.Id     = id;
                 voiceChannelResource.IsUsed = false;
             }
 
@@ -302,7 +302,7 @@ namespace Ryujinx.Audio.Renderer.Server
 
             _upsamplerManager = new UpsamplerManager(upSamplerWorkBuffer, _upsamplerCount);
 
-            _effectContext.Initialize(parameter.EffectCount, _behaviourContext.IsEffectInfoVersion2Supported() ? parameter.EffectCount : 0);
+            _effectContext.Initialize(parameter.EffectCount);
             _sinkContext.Initialize(parameter.SinkCount);
 
             Memory<VoiceUpdateState> voiceUpdateStatesDsp = workBufferAllocator.Allocate<VoiceUpdateState>(parameter.VoiceCount, VoiceUpdateState.Align);
@@ -341,7 +341,6 @@ namespace Ryujinx.Audio.Renderer.Server
 
             _processHandle = processHandle;
             _elapsedFrameCount = 0;
-            _voiceDropParameter = 1.0f;
 
             switch (_behaviourContext.GetCommandProcessingTimeEstimatorVersion())
             {
@@ -353,12 +352,6 @@ namespace Ryujinx.Audio.Renderer.Server
                     break;
                 case 3:
                     _commandProcessingTimeEstimator = new CommandProcessingTimeEstimatorVersion3(_sampleCount, _mixBufferCount);
-                    break;
-                case 4:
-                    _commandProcessingTimeEstimator = new CommandProcessingTimeEstimatorVersion4(_sampleCount, _mixBufferCount);
-                    break;
-                case 5:
-                    _commandProcessingTimeEstimator = new CommandProcessingTimeEstimatorVersion5(_sampleCount, _mixBufferCount);
                     break;
                 default:
                     throw new NotImplementedException($"Unsupported processing time estimator version {_behaviourContext.GetCommandProcessingTimeEstimatorVersion()}.");
@@ -393,14 +386,6 @@ namespace Ryujinx.Audio.Renderer.Server
             }
 
             Logger.Info?.Print(LogClass.AudioRenderer, $"Stopped renderer id {_sessionId}");
-        }
-
-        public void Disable()
-        {
-            lock (_lock)
-            {
-                _isActive = false;
-            }
         }
 
         public ResultCode Update(Memory<byte> output, Memory<byte> performanceOutput, ReadOnlyMemory<byte> input)
@@ -517,10 +502,12 @@ namespace Ryujinx.Audio.Renderer.Server
 
         private ulong GetSystemTicks()
         {
-            return (ulong)(_manager.TickSource.ElapsedSeconds * Constants.TargetTimerFrequency);
+            double ticks = ARMeilleure.State.ExecutionContext.ElapsedTicks * ARMeilleure.State.ExecutionContext.TickFrequency;
+
+            return (ulong)(ticks * Constants.TargetTimerFrequency);
         }
 
-        private uint ComputeVoiceDrop(CommandBuffer commandBuffer, uint voicesEstimatedTime, long deltaTimeDsp)
+        private uint ComputeVoiceDrop(CommandBuffer commandBuffer, long voicesEstimatedTime, long deltaTimeDsp)
         {
             int i;
 
@@ -589,7 +576,7 @@ namespace Ryujinx.Audio.Renderer.Server
                     {
                         command.Enabled = false;
 
-                        voicesEstimatedTime -= (uint)(_voiceDropParameter * command.EstimatedProcessingTime);
+                        voicesEstimatedTime -= (long)command.EstimatedProcessingTime;
                     }
                 }
             }
@@ -623,13 +610,13 @@ namespace Ryujinx.Audio.Renderer.Server
             _voiceContext.Sort();
             commandGenerator.GenerateVoices();
 
-            uint voicesEstimatedTime = (uint)(_voiceDropParameter * commandBuffer.EstimatedProcessingTime);
+            long voicesEstimatedTime = (long)commandBuffer.EstimatedProcessingTime;
 
             commandGenerator.GenerateSubMixes();
             commandGenerator.GenerateFinalMixes();
             commandGenerator.GenerateSinks();
 
-            uint totalEstimatedTime = (uint)(_voiceDropParameter * commandBuffer.EstimatedProcessingTime);
+            long totalEstimatedTime = (long)commandBuffer.EstimatedProcessingTime;
 
             if (_voiceDropEnabled)
             {
@@ -643,11 +630,6 @@ namespace Ryujinx.Audio.Renderer.Server
             }
 
             _voiceContext.UpdateForCommandGeneration();
-
-            if (_behaviourContext.IsEffectInfoVersion2Supported())
-            {
-                _effectContext.UpdateResultStateForCommandGeneration();
-            }
 
             ulong endTicks = GetSystemTicks();
 
@@ -670,21 +652,14 @@ namespace Ryujinx.Audio.Renderer.Server
                 {
                     _terminationEvent.Reset();
 
-                    if (!_manager.Processor.HasRemainingCommands(_sessionId))
-                    {
-                        GenerateCommandList(out CommandList commands);
+                    GenerateCommandList(out CommandList commands);
 
-                        _manager.Processor.Send(_sessionId,
-                                                commands,
-                                                GetMaxAllocatedTimeForDsp(),
-                                                _appletResourceId);
+                    _manager.Processor.Send(_sessionId,
+                                            commands,
+                                            GetMaxAllocatedTimeForDsp(),
+                                            _appletResourceId);
 
-                        _systemEvent.Signal();
-                    }
-                    else
-                    {
-                        _isDspRunningBehind = true;
-                    }
+                    _systemEvent.Signal();
                 }
                 else
                 {
@@ -772,7 +747,7 @@ namespace Ryujinx.Audio.Renderer.Server
             size = WorkBufferAllocator.GetTargetSize<float>(size, Constants.TargetSampleCount * (Constants.VoiceChannelCountMax + parameter.MixBufferCount) * (parameter.SinkCount + parameter.SubMixBufferCount), 0x10);
 
             // Depop buffer
-            size = WorkBufferAllocator.GetTargetSize<float>(size, BitUtils.AlignUp<ulong>(parameter.MixBufferCount, Constants.BufferAlignment), Constants.BufferAlignment);
+            size = WorkBufferAllocator.GetTargetSize<float>(size, (ulong)BitUtils.AlignUp(parameter.MixBufferCount, Constants.BufferAlignment), Constants.BufferAlignment);
 
             // Voice
             size = WorkBufferAllocator.GetTargetSize<VoiceState>(size, parameter.VoiceCount, VoiceState.Alignment);
@@ -804,10 +779,10 @@ namespace Ryujinx.Audio.Renderer.Server
             {
                 ulong performanceMetricsPerFramesSize = PerformanceManager.GetRequiredBufferSizeForPerformanceMetricsPerFrame(ref parameter, ref behaviourContext) * (parameter.PerformanceMetricFramesCount + 1) + 0xC;
 
-                size += BitUtils.AlignUp<ulong>(performanceMetricsPerFramesSize, Constants.PerformanceMetricsPerFramesSizeAlignment);
+                size += BitUtils.AlignUp(performanceMetricsPerFramesSize, Constants.PerformanceMetricsPerFramesSizeAlignment);
             }
 
-            return BitUtils.AlignUp<ulong>(size, Constants.WorkBufferAlignment);
+            return BitUtils.AlignUp(size, Constants.WorkBufferAlignment);
         }
 
         public ResultCode QuerySystemEvent(out IWritableEvent systemEvent)
@@ -826,10 +801,7 @@ namespace Ryujinx.Audio.Renderer.Server
 
         public void Dispose()
         {
-            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) == 0)
-            {
-                Dispose(true);
-            }
+            Dispose(true);
         }
 
         protected virtual void Dispose(bool disposing)
@@ -859,35 +831,8 @@ namespace Ryujinx.Audio.Renderer.Server
                 _manager.Unregister(this);
                 _terminationEvent.Dispose();
                 _workBufferMemoryPin.Dispose();
-
-                if (MemoryManager is IRefCounted rc)
-                {
-                    rc.DecrementReferenceCount();
-
-                    MemoryManager = null;
-                }
+                _workBufferRegion.Dispose();
             }
-        }
-
-        public void SetVoiceDropParameter(float voiceDropParameter)
-        {
-            _voiceDropParameter = Math.Clamp(voiceDropParameter, 0.0f, 2.0f);
-        }
-
-        public float GetVoiceDropParameter()
-        {
-            return _voiceDropParameter;
-        }
-
-        public ResultCode ExecuteAudioRendererRendering()
-        {
-            if (_executionMode == AudioRendererExecutionMode.Manual && _renderingDevice == AudioRendererRenderingDevice.Cpu)
-            {
-                // NOTE: Here Nintendo aborts with this error code, we don't want that.
-                return ResultCode.InvalidExecutionContextOperation;
-            }
-
-            return ResultCode.UnsupportedOperation;
         }
     }
 }

@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace ARMeilleure.IntermediateRepresentation
@@ -9,7 +7,7 @@ namespace ARMeilleure.IntermediateRepresentation
     /// Represents a efficient linked list that stores the pointer on the object directly and does not allocate.
     /// </summary>
     /// <typeparam name="T">Type of the list items</typeparam>
-    class IntrusiveList<T> where T : IEquatable<T>, IIntrusiveListNode<T>
+    class IntrusiveList<T> where T : class, IIntrusiveListNode<T>
     {
         /// <summary>
         /// First item of the list, or null if empty.
@@ -27,33 +25,21 @@ namespace ARMeilleure.IntermediateRepresentation
         public int Count { get; private set; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="IntrusiveList{T}"/> class.
-        /// </summary>
-        /// <exception cref="ArgumentException"><typeparamref name="T"/> is not pointer sized.</exception>
-        public IntrusiveList()
-        {
-            if (Unsafe.SizeOf<T>() != IntPtr.Size)
-            {
-                throw new ArgumentException("T must be a reference type or a pointer sized struct.");
-            }
-        }
-
-        /// <summary>
         /// Adds a item as the first item of the list.
         /// </summary>
         /// <param name="newNode">Item to be added</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T AddFirst(T newNode)
+        public void AddFirst(T newNode)
         {
-            if (!EqualsNull(First))
+            if (First != null)
             {
-                return AddBefore(First, newNode);
+                AddBefore(First, newNode);
             }
             else
             {
-                Debug.Assert(EqualsNull(newNode.ListPrevious));
-                Debug.Assert(EqualsNull(newNode.ListNext));
-                Debug.Assert(EqualsNull(Last));
+                Debug.Assert(newNode.ListPrevious == null);
+                Debug.Assert(newNode.ListNext == null);
+                Debug.Assert(Last == null);
 
                 First = newNode;
                 Last = newNode;
@@ -61,8 +47,6 @@ namespace ARMeilleure.IntermediateRepresentation
                 Debug.Assert(Count == 0);
 
                 Count = 1;
-
-                return newNode;
             }
         }
 
@@ -71,17 +55,17 @@ namespace ARMeilleure.IntermediateRepresentation
         /// </summary>
         /// <param name="newNode">Item to be added</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T AddLast(T newNode)
+        public void AddLast(T newNode)
         {
-            if (!EqualsNull(Last))
+            if (Last != null)
             {
-                return AddAfter(Last, newNode);
+                AddAfter(Last, newNode);
             }
             else
             {
-                Debug.Assert(EqualsNull(newNode.ListPrevious));
-                Debug.Assert(EqualsNull(newNode.ListNext));
-                Debug.Assert(EqualsNull(First));
+                Debug.Assert(newNode.ListPrevious == null);
+                Debug.Assert(newNode.ListNext == null);
+                Debug.Assert(First == null);
 
                 First = newNode;
                 Last = newNode;
@@ -89,8 +73,6 @@ namespace ARMeilleure.IntermediateRepresentation
                 Debug.Assert(Count == 0);
 
                 Count = 1;
-
-                return newNode;
             }
         }
 
@@ -103,20 +85,20 @@ namespace ARMeilleure.IntermediateRepresentation
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T AddBefore(T node, T newNode)
         {
-            Debug.Assert(EqualsNull(newNode.ListPrevious));
-            Debug.Assert(EqualsNull(newNode.ListNext));
+            Debug.Assert(newNode.ListPrevious == null);
+            Debug.Assert(newNode.ListNext == null);
 
             newNode.ListPrevious = node.ListPrevious;
             newNode.ListNext = node;
 
             node.ListPrevious = newNode;
 
-            if (!EqualsNull(newNode.ListPrevious))
+            if (newNode.ListPrevious != null)
             {
                 newNode.ListPrevious.ListNext = newNode;
             }
 
-            if (Equals(First, node))
+            if (First == node)
             {
                 First = newNode;
             }
@@ -135,20 +117,20 @@ namespace ARMeilleure.IntermediateRepresentation
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T AddAfter(T node, T newNode)
         {
-            Debug.Assert(EqualsNull(newNode.ListPrevious));
-            Debug.Assert(EqualsNull(newNode.ListNext));
+            Debug.Assert(newNode.ListPrevious == null);
+            Debug.Assert(newNode.ListNext == null);
 
             newNode.ListPrevious = node;
             newNode.ListNext = node.ListNext;
 
             node.ListNext = newNode;
 
-            if (!EqualsNull(newNode.ListNext))
+            if (newNode.ListNext != null)
             {
                 newNode.ListNext.ListPrevious = newNode;
             }
 
-            if (Equals(Last, node))
+            if (Last == node)
             {
                 Last = newNode;
             }
@@ -165,44 +147,32 @@ namespace ARMeilleure.IntermediateRepresentation
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Remove(T node)
         {
-            if (!EqualsNull(node.ListPrevious))
+            if (node.ListPrevious != null)
             {
                 node.ListPrevious.ListNext = node.ListNext;
             }
             else
             {
-                Debug.Assert(Equals(First, node));
+                Debug.Assert(First == node);
 
                 First = node.ListNext;
             }
 
-            if (!EqualsNull(node.ListNext))
+            if (node.ListNext != null)
             {
                 node.ListNext.ListPrevious = node.ListPrevious;
             }
             else
             {
-                Debug.Assert(Equals(Last, node));
+                Debug.Assert(Last == node);
 
                 Last = node.ListPrevious;
             }
 
-            node.ListPrevious = default;
-            node.ListNext = default;
+            node.ListPrevious = null;
+            node.ListNext = null;
 
             Count--;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool EqualsNull(T a)
-        {
-            return EqualityComparer<T>.Default.Equals(a, default);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool Equals(T a, T b)
-        {
-            return EqualityComparer<T>.Default.Equals(a, b);
         }
     }
 }

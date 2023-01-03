@@ -1,135 +1,93 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 
 namespace ARMeilleure.IntermediateRepresentation
 {
-    class BasicBlock : IEquatable<BasicBlock>, IIntrusiveListNode<BasicBlock>
+    class BasicBlock : IIntrusiveListNode<BasicBlock>
     {
-        private const uint MaxSuccessors = 2;
-
-        private int _succCount;
-        private BasicBlock _succ0;
-        private BasicBlock _succ1;
-        private HashSet<BasicBlock> _domFrontiers;
+        private readonly List<BasicBlock> _successors;
 
         public int Index { get; set; }
+
         public BasicBlockFrequency Frequency { get; set; }
+
         public BasicBlock ListPrevious { get; set; }
         public BasicBlock ListNext { get; set; }
-        public IntrusiveList<Operation> Operations { get; }
+
+        public IntrusiveList<Node> Operations { get; }
+
         public List<BasicBlock> Predecessors { get; }
+
+        public HashSet<BasicBlock> DominanceFrontiers { get; }
         public BasicBlock ImmediateDominator { get; set; }
 
-        public int SuccessorsCount => _succCount;
-
-        public HashSet<BasicBlock> DominanceFrontiers
-        {
-            get
-            {
-                if (_domFrontiers == null)
-                {
-                    _domFrontiers = new HashSet<BasicBlock>();
-                }
-
-                return _domFrontiers;
-            }
-        }
+        public int SuccessorCount => _successors.Count;
 
         public BasicBlock() : this(index: -1) { }
 
         public BasicBlock(int index)
         {
-            Operations = new IntrusiveList<Operation>();
+            _successors = new List<BasicBlock>();
+
+            Operations = new IntrusiveList<Node>();
             Predecessors = new List<BasicBlock>();
+            DominanceFrontiers = new HashSet<BasicBlock>();
 
             Index = index;
         }
 
         public void AddSuccessor(BasicBlock block)
         {
-            ArgumentNullException.ThrowIfNull(block);
-
-            if ((uint)_succCount + 1 > MaxSuccessors)
+            if (block == null)
             {
-                ThrowSuccessorOverflow();
+                throw new ArgumentNullException(nameof(block));
             }
 
             block.Predecessors.Add(this);
 
-            GetSuccessorUnsafe(_succCount++) = block;
+            _successors.Add(block);
         }
 
         public void RemoveSuccessor(int index)
         {
-            if ((uint)index >= (uint)_succCount)
-            {
-                ThrowOutOfRange(nameof(index));
-            }
-
-            ref BasicBlock oldBlock = ref GetSuccessorUnsafe(index);
+            BasicBlock oldBlock = _successors[index];
 
             oldBlock.Predecessors.Remove(this);
-            oldBlock = null;
 
-            if (index == 0)
-            {
-                _succ0 = _succ1;
-            }
-
-            _succCount--;
+            _successors.RemoveAt(index);
         }
 
         public BasicBlock GetSuccessor(int index)
         {
-            if ((uint)index >= (uint)_succCount)
-            {
-                ThrowOutOfRange(nameof(index));
-            }
-
-            return GetSuccessorUnsafe(index);
-        }
-
-        private ref BasicBlock GetSuccessorUnsafe(int index)
-        {
-            return ref Unsafe.Add(ref _succ0, index);
+            return _successors[index];
         }
 
         public void SetSuccessor(int index, BasicBlock block)
         {
-            ArgumentNullException.ThrowIfNull(block);
-
-            if ((uint)index >= (uint)_succCount)
+            if (block == null)
             {
-                ThrowOutOfRange(nameof(index));
+                throw new ArgumentNullException(nameof(block));
             }
 
-            ref BasicBlock oldBlock = ref GetSuccessorUnsafe(index);
+            BasicBlock oldBlock = _successors[index];
 
             oldBlock.Predecessors.Remove(this);
             block.Predecessors.Add(this);
-            
-            oldBlock = block;
+
+            _successors[index] = block;
         }
 
-        public void Append(Operation node)
+        public void Append(Node node)
         {
-            Operation last = Operations.Last;
+            var lastOp = Operations.Last as Operation;
 
             // Append node before terminal or to end if no terminal.
-            if (last == default)
-            {
-                Operations.AddLast(node);
-
-                return;
-            }
-
-            switch (last.Instruction)
+            switch (lastOp?.Instruction)
             {
                 case Instruction.Return:
                 case Instruction.Tailcall:
                 case Instruction.BranchIf:
-                    Operations.AddBefore(last, node);
+                    Operations.AddBefore(lastOp, node);
                     break;
 
                 default:
@@ -138,22 +96,9 @@ namespace ARMeilleure.IntermediateRepresentation
             }
         }
 
-        private static void ThrowOutOfRange(string name) => throw new ArgumentOutOfRangeException(name);
-        private static void ThrowSuccessorOverflow() => throw new OverflowException($"BasicBlock can only have {MaxSuccessors} successors.");
-
-        public bool Equals(BasicBlock other)
+        public Node GetLastOp()
         {
-            return other == this;
-        }
-
-        public override bool Equals(object obj)
-        {
-            return Equals(obj as BasicBlock);
-        }
-
-        public override int GetHashCode()
-        {
-            return base.GetHashCode();
+            return Operations.Last;
         }
     }
 }

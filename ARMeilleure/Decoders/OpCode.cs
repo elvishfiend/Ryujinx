@@ -18,9 +18,10 @@ namespace ARMeilleure.Decoders
 
         public OpCode(InstDescriptor inst, ulong address, int opCode)
         {
+            Address   = address;
+            RawOpCode = opCode;
+
             Instruction = inst;
-            Address     = address;
-            RawOpCode   = opCode;
 
             RegisterSize = RegisterSize.Int64;
         }

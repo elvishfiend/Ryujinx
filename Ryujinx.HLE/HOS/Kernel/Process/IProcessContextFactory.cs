@@ -1,9 +1,10 @@
-﻿using Ryujinx.Memory;
+﻿using Ryujinx.Cpu;
+using Ryujinx.Memory;
 
 namespace Ryujinx.HLE.HOS.Kernel.Process
 {
     interface IProcessContextFactory
     {
-        IProcessContext Create(KernelContext context, ulong pid, ulong addressSpaceSize, InvalidAccessHandler invalidAccessHandler, bool for64Bit);
+        IProcessContext Create(MemoryBlock backingMemory, ulong addressSpaceSize, InvalidAccessHandler invalidAccessHandler);
     }
 }

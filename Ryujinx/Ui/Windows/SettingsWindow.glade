@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Generated with glade 3.38.2 -->
+<!-- Generated with glade 3.38.1 -->
 <interface>
   <requires lib="gtk+" version="3.20"/>
   <object class="GtkAdjustment" id="_fsLogSpinAdjustment">
@@ -46,7 +46,7 @@
     <property name="modal">True</property>
     <property name="window-position">center</property>
     <property name="default-width">650</property>
-    <property name="default-height">650</property>
+    <property name="default-height">550</property>
     <child>
       <object class="GtkBox">
         <property name="visible">True</property>
@@ -110,7 +110,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Choose whether or not to display Ryujinx on your "currently playing" Discord activity</property>
+                                    <property name="tooltip-text" translatable="yes">Enables or disables Discord Rich Presence</property>
                                     <property name="halign">start</property>
                                     <property name="draw-indicator">True</property>
                                   </object>
@@ -264,7 +264,7 @@
                                       <object class="GtkEntry" id="_addGameDirBox">
                                         <property name="visible">True</property>
                                         <property name="can-focus">True</property>
-                                        <property name="tooltip-text" translatable="yes">Enter a game directory to add to the list</property>
+                                        <property name="tooltip-text" translatable="yes">Enter a game directroy to add to the list</property>
                                       </object>
                                       <packing>
                                         <property name="expand">True</property>
@@ -494,7 +494,7 @@
                                 <property name="visible">True</property>
                                 <property name="can-focus">True</property>
                                 <property name="receives-default">False</property>
-                                <property name="tooltip-text" translatable="yes">Docked mode makes the emulated system behave as a docked Nintendo Switch. This improves graphical fidelity in most games. Conversely, disabling this will make the emulated system behave as a handheld Nintendo Switch, reducing graphics quality.&#13;Configure player 1 controls if planning to use docked mode; configure handheld controls if planning to use handheld mode.&#13;Leave ON if unsure.</property>
+                                <property name="tooltip-text" translatable="yes">Enable or disable Docked Mode</property>
                                 <property name="draw-indicator">True</property>
                               </object>
                               <packing>
@@ -510,7 +510,7 @@
                                 <property name="visible">True</property>
                                 <property name="can-focus">True</property>
                                 <property name="receives-default">False</property>
-                                <property name="tooltip-text" translatable="yes">Direct keyboard access (HID) support. Provides games access to your keyboard as a text entry device.</property>
+                                <property name="tooltip-text" translatable="yes">Enable or disable "direct keyboard access (HID) support" (Provides games access to your keyboard as a text entry device)</property>
                                 <property name="draw-indicator">True</property>
                               </object>
                               <packing>
@@ -518,22 +518,6 @@
                                 <property name="fill">False</property>
                                 <property name="padding">10</property>
                                 <property name="position">1</property>
-                              </packing>
-                            </child>
-                            <child>
-                              <object class="GtkCheckButton" id="_directMouseAccess">
-                                <property name="label" translatable="yes">Direct Mouse Access</property>
-                                <property name="visible">True</property>
-                                <property name="can-focus">True</property>
-                                <property name="receives-default">False</property>
-                                <property name="tooltip-text" translatable="yes">Direct mouse access (HID) support. Provides games access to your mouse as a pointing device.</property>
-                                <property name="draw-indicator">True</property>
-                              </object>
-                              <packing>
-                                <property name="expand">False</property>
-                                <property name="fill">False</property>
-                                <property name="padding">10</property>
-                                <property name="position">2</property>
                               </packing>
                             </child>
                           </object>
@@ -1266,7 +1250,6 @@
                                           <item id="Spanish" translatable="yes">Spanish</item>
                                           <item id="Taiwanese" translatable="yes">Taiwanese</item>
                                           <item id="TraditionalChinese" translatable="yes">Traditional Chinese</item>
-                                          <item id="BrazilianPortuguese" translatable="yes">Brazilian Portuguese</item>
                                         </items>
                                       </object>
                                       <packing>
@@ -1477,7 +1460,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Emulated console's Vertical Sync. Essentially a frame-limiter for the majority of games; disabling it may cause games to run at higher speed or make loading screens take longer or get stuck.&#13;Can be toggled in-game with a hotkey of your preference. We recommend doing this if you plan on disabling it.&#13;Leave ON if unsure.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables or disables Vertical Sync</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -1495,7 +1478,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Saves translated JIT functions so that they do not need to be translated every time the game loads.&#13;Reduces stuttering and significantly speeds up boot times after the first boot of a game.&#13;Leave ON if unsure.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables or disables profiled translation cache persistency</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -1508,12 +1491,12 @@
                                   </packing>
                                 </child>
                                 <child>
-                                  <object class="GtkCheckButton" id="_internetToggle">
-                                    <property name="label" translatable="yes">Enable Guest Internet Access</property>
+                                  <object class="GtkCheckButton" id="_fsicToggle">
+                                    <property name="label" translatable="yes">Enable FS Integrity Checks</property>
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Allows the emulated application to connect to the Internet.&#13;Games with a LAN mode can connect to each other when this is enabled and the systems are connected to the same access point. This includes real consoles as well.&#13;Does NOT allow connecting to Nintendo servers. May cause crashing in certain games that try to connect to the Internet.&#13;Leave OFF if unsure.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables integrity checks on Game content files</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -1523,24 +1506,6 @@
                                     <property name="expand">False</property>
                                     <property name="fill">True</property>
                                     <property name="position">7</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkCheckButton" id="_fsicToggle">
-                                    <property name="label" translatable="yes">Enable FS Integrity Checks</property>
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">True</property>
-                                    <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Checks for corrupt files when booting a game, and if corrupt files are detected, displays a hash error in the log.&#13;Has no impact on performance and is meant to help troubleshooting.&#13;Leave ON if unsure.</property>
-                                    <property name="halign">start</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <property name="draw-indicator">True</property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="position">8</property>
                                   </packing>
                                 </child>
                               </object>
@@ -1561,7 +1526,7 @@
                                   <object class="GtkLabel">
                                     <property name="visible">True</property>
                                     <property name="can-focus">False</property>
-                                    <property name="tooltip-text" translatable="yes">Changes the backend used to render audio.&#13;SDL2 is the preferred one, while OpenAL and SoundIO are used as fallbacks. Dummy will have no sound.&#13;Set to SDL2 if unsure.</property>
+                                    <property name="tooltip-text" translatable="yes">Change Audio Backend</property>
                                     <property name="halign">end</property>
                                     <property name="margin-right">5</property>
                                     <property name="label" translatable="yes">Audio Backend: </property>
@@ -1579,93 +1544,6 @@
                                 <property name="fill">True</property>
                                 <property name="padding">5</property>
                                 <property name="position">2</property>
-                              </packing>
-                            </child>
-                            <child>
-                              <object class="GtkBox" id="_memoryManagerBox">
-                                <property name="visible">True</property>
-                                <property name="can-focus">False</property>
-                                <child>
-                                  <placeholder/>
-                                </child>
-                                <child>
-                                  <object class="GtkLabel">
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">False</property>
-                                    <property name="tooltip-text" translatable="yes">Change how guest memory is mapped and accessed. Greatly affects emulated CPU performance.&#13;Set to HOST UNCHECKED if unsure.</property>
-                                    <property name="halign">end</property>
-                                    <property name="margin-right">5</property>
-                                    <property name="label" translatable="yes">Memory Manager Mode: </property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="padding">5</property>
-                                    <property name="position">2</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkRadioButton" id="_mmSoftware">
-                                    <property name="label" translatable="yes">Software</property>
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">True</property>
-                                    <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Use a software page table for address translation. Highest accuracy but slowest performance.</property>
-                                    <property name="halign">start</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <property name="draw-indicator">True</property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="position">3</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkRadioButton" id="_mmHost">
-                                    <property name="label" translatable="yes">Host (fast)</property>
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">True</property>
-                                    <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Directly map memory in the host address space. Much faster JIT compilation and execution.</property>
-                                    <property name="halign">start</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <property name="draw-indicator">True</property>
-                                    <property name="group">_mmSoftware</property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="position">4</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkRadioButton" id="_mmHostUnsafe">
-                                    <property name="label" translatable="yes">Host Unchecked (fastest, unsafe)</property>
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">True</property>
-                                    <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Directly map memory, but do not mask the address within the guest address space before access. Faster, but at the cost of safety. The guest application can access memory from anywhere in Ryujinx, so only run programs you trust with this mode.</property>
-                                    <property name="halign">start</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <property name="draw-indicator">True</property>
-                                    <property name="group">_mmSoftware</property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="position">5</property>
-                                  </packing>
-                                </child>
-                              </object>
-                              <packing>
-                                <property name="expand">False</property>
-                                <property name="fill">True</property>
-                                <property name="padding">5</property>
-                                <property name="position">3</property>
                               </packing>
                             </child>
                           </object>
@@ -1725,7 +1603,7 @@
                                     <property name="can-focus">False</property>
                                     <property name="halign">start</property>
                                     <property name="margin-bottom">5</property>
-                                    <property name="label" translatable="yes"> (may cause instability)</property>
+                                    <property name="label" translatable="yes"> - These may cause instability</property>
                                   </object>
                                   <packing>
                                     <property name="expand">False</property>
@@ -1749,11 +1627,11 @@
                                 <property name="orientation">vertical</property>
                                 <child>
                                   <object class="GtkCheckButton" id="_expandRamToggle">
-                                    <property name="label" translatable="yes">Use alternative memory layout (Developers)</property>
+                                    <property name="label" translatable="yes">Expand DRAM size to 6GB</property>
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Utilizes an alternative MemoryMode layout to mimic a Switch development model.&#13;This is only useful for higher-resolution texture packs or 4k resolution mods. Does NOT improve performance.&#13;Leave OFF if unsure.</property>
+                                    <property name="tooltip-text" translatable="yes">Expands the amount of memory on the emulated system from 4GB to 6GB</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -1771,7 +1649,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Ignores unimplemented Horizon OS services. This may help in bypassing crashes when booting certain games.&#13;Leave OFF if unsure.</property>
+                                    <property name="tooltip-text" translatable="yes">Enable or disable ignoring missing services</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -1822,186 +1700,6 @@
                         <property name="margin-top">5</property>
                         <property name="orientation">vertical</property>
                         <child>
-                          <object class="GtkBox" id="CatFeatures">
-                            <property name="visible">True</property>
-                            <property name="can-focus">False</property>
-                            <property name="margin-left">5</property>
-                            <property name="margin-right">5</property>
-                            <property name="orientation">vertical</property>
-                            <child>
-                              <object class="GtkLabel">
-                                <property name="visible">True</property>
-                                <property name="can-focus">False</property>
-                                <property name="halign">start</property>
-                                <property name="margin-left">5</property>
-                                <property name="margin-right">5</property>
-                                <property name="margin-bottom">5</property>
-                                <property name="label" translatable="yes">Features</property>
-                                <attributes>
-                                  <attribute name="weight" value="bold"/>
-                                </attributes>
-                              </object>
-                              <packing>
-                                <property name="expand">False</property>
-                                <property name="fill">True</property>
-                                <property name="position">0</property>
-                              </packing>
-                            </child>
-                            <child>
-                              <object class="GtkBox" id="FeaturesOptions">
-                                <property name="visible">True</property>
-                                <property name="can-focus">False</property>
-                                <property name="margin-left">10</property>
-                                <property name="margin-right">10</property>
-                                <property name="orientation">vertical</property>
-                                <child>
-                                  <object class="GtkBox">
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">False</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <child>
-                                      <object class="GtkLabel">
-                                        <property name="visible">True</property>
-                                        <property name="can-focus">False</property>
-                                        <property name="tooltip-text" translatable="yes">Executes graphics backend commands on a second thread.&#13;Speeds up shader compilation, reduces stuttering, and improves performance on GPU drivers without multithreading support of their own. Slightly better performance on drivers with multithreading.&#13;Set to AUTO if unsure.</property>
-                                        <property name="label" translatable="yes">Graphics Backend Multithreading:</property>
-                                      </object>
-                                      <packing>
-                                        <property name="expand">False</property>
-                                        <property name="fill">True</property>
-                                        <property name="padding">5</property>
-                                        <property name="position">0</property>
-                                      </packing>
-                                    </child>
-                                    <child>
-                                      <object class="GtkComboBoxText" id="_galThreading">
-                                        <property name="visible">True</property>
-                                        <property name="can-focus">False</property>
-                                        <property name="tooltip-text" translatable="yes">Executes graphics backend commands on a second thread.&#13;Speeds up shader compilation, reduces stuttering, and improves performance on GPU drivers without multithreading support of their own. Slightly better performance on drivers with multithreading.&#13;Set to AUTO if unsure.</property>
-                                        <property name="active-id">-1</property>
-                                        <items>
-                                          <item id="Auto" translatable="yes">Auto</item>
-                                          <item id="Off" translatable="yes">Off</item>
-                                          <item id="On" translatable="yes">On</item>
-                                        </items>
-                                      </object>
-                                      <packing>
-                                        <property name="expand">False</property>
-                                        <property name="fill">True</property>
-                                        <property name="position">1</property>
-                                      </packing>
-                                    </child>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="padding">5</property>
-                                    <property name="position">0</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkBox">
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">False</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <child>
-                                      <object class="GtkLabel">
-                                        <property name="visible">True</property>
-                                        <property name="can-focus">False</property>
-                                        <property name="tooltip-text" translatable="yes">Graphics Backend to use</property>
-                                        <property name="label" translatable="yes">Graphics Backend:</property>
-                                      </object>
-                                      <packing>
-                                        <property name="expand">False</property>
-                                        <property name="fill">True</property>
-                                        <property name="padding">5</property>
-                                        <property name="position">0</property>
-                                      </packing>
-                                    </child>
-                                    <child>
-                                      <object class="GtkComboBoxText" id="_graphicsBackend">
-                                        <property name="visible">True</property>
-                                        <property name="can-focus">False</property>
-                                        <property name="tooltip-text" translatable="yes">Graphics Backend to use</property>
-                                        <property name="active-id">-1</property>
-                                        <items>
-                                          <item id="0" translatable="yes">Vulkan</item>
-                                          <item id="1" translatable="yes">OpenGL</item>
-                                        </items>
-                                      </object>
-                                      <packing>
-                                        <property name="expand">False</property>
-                                        <property name="fill">True</property>
-                                        <property name="position">1</property>
-                                      </packing>
-                                    </child>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="padding">5</property>
-                                    <property name="position">1</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkBox">
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">False</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <child>
-                                      <object class="GtkLabel">
-                                        <property name="visible">True</property>
-                                        <property name="can-focus">False</property>
-                                        <property name="tooltip-text" translatable="yes">Preferred GPU (Vulkan only)</property>
-                                        <property name="label" translatable="yes">Preferred GPU:</property>
-                                      </object>
-                                      <packing>
-                                        <property name="expand">False</property>
-                                        <property name="fill">True</property>
-                                        <property name="padding">5</property>
-                                        <property name="position">0</property>
-                                      </packing>
-                                    </child>
-                                    <child>
-                                      <object class="GtkComboBoxText" id="_preferredGpu">
-                                        <property name="visible">True</property>
-                                        <property name="can-focus">False</property>
-                                        <property name="tooltip-text" translatable="yes">Preferred GPU (Vulkan only)</property>
-                                        <property name="active-id">-1</property>
-                                      </object>
-                                      <packing>
-                                        <property name="expand">False</property>
-                                        <property name="fill">True</property>
-                                        <property name="position">1</property>
-                                      </packing>
-                                    </child>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="padding">5</property>
-                                    <property name="position">2</property>
-                                  </packing>
-                                </child>
-                              </object>
-                              <packing>
-                                <property name="expand">False</property>
-                                <property name="fill">True</property>
-                                <property name="position">2</property>
-                              </packing>
-                            </child>
-                          </object>
-                          <packing>
-                            <property name="expand">False</property>
-                            <property name="fill">True</property>
-                            <property name="padding">5</property>
-                            <property name="position">0</property>
-                          </packing>
-                        </child>
-                        <child>
                           <object class="GtkBox" id="CatEnhancements">
                             <property name="visible">True</property>
                             <property name="can-focus">False</property>
@@ -2040,7 +1738,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Saves a disk shader cache which reduces stuttering in subsequent runs.&#13;Leave ON if unsure.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables or disables Shader Cache</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2050,42 +1748,6 @@
                                     <property name="expand">False</property>
                                     <property name="fill">True</property>
                                     <property name="position">0</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkCheckButton" id="_textureRecompressionToggle">
-                                    <property name="label" translatable="yes">Enable Texture Recompression</property>
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">True</property>
-                                    <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Enables or disables Texture Recompression. Reduces VRAM usage at the cost of texture quality, and may also increase stuttering</property>
-                                    <property name="halign">start</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <property name="draw-indicator">True</property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="position">1</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkCheckButton" id="_macroHLEToggle">
-                                    <property name="label" translatable="yes">Enable Macro HLE</property>
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">True</property>
-                                    <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Enables or disables high-level emulation of Macro code. Improves performance but may cause graphical glitches in some games</property>
-                                    <property name="halign">start</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <property name="draw-indicator">True</property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="position">2</property>
                                   </packing>
                                 </child>
                                 <child>
@@ -2149,7 +1811,7 @@
                                     <property name="expand">False</property>
                                     <property name="fill">True</property>
                                     <property name="padding">5</property>
-                                    <property name="position">3</property>
+                                    <property name="position">1</property>
                                   </packing>
                                 </child>
                                 <child>
@@ -2197,7 +1859,7 @@
                                     <property name="expand">False</property>
                                     <property name="fill">True</property>
                                     <property name="padding">5</property>
-                                    <property name="position">4</property>
+                                    <property name="position">1</property>
                                   </packing>
                                 </child>
                                 <child>
@@ -2246,7 +1908,7 @@
                                     <property name="expand">False</property>
                                     <property name="fill">True</property>
                                     <property name="padding">5</property>
-                                    <property name="position">5</property>
+                                    <property name="position">3</property>
                                   </packing>
                                 </child>
                               </object>
@@ -2261,7 +1923,7 @@
                             <property name="expand">False</property>
                             <property name="fill">True</property>
                             <property name="padding">5</property>
-                            <property name="position">2</property>
+                            <property name="position">0</property>
                           </packing>
                         </child>
                         <child>
@@ -2273,7 +1935,7 @@
                             <property name="expand">False</property>
                             <property name="fill">True</property>
                             <property name="padding">5</property>
-                            <property name="position">3</property>
+                            <property name="position">1</property>
                           </packing>
                         </child>
                         <child>
@@ -2428,7 +2090,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Saves console logging to a log file on disk. Does not affect performance.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables or disables logging to a file on disk</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2446,7 +2108,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Prints stub log messages in the console. Does not affect performance.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables printing stub log messages</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2464,7 +2126,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Prints info log messages in the console. Does not affect performance.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables printing info log messages</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2482,7 +2144,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Prints warning log messages in the console. Does not affect performance.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables printing warning log messages</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2500,7 +2162,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Prints error log messages in the console. Does not affect performance.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables printing error log messages</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2518,7 +2180,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Prints guest log messages in the console. Does not affect performance.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables printing guest log messages</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2536,7 +2198,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Enables FS access log output to the console. Possible modes are 0-3</property>
+                                    <property name="tooltip-text" translatable="yes">Enables printing fs access log messages</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2647,7 +2309,7 @@
                                         <property name="visible">True</property>
                                         <property name="can-focus">False</property>
                                         <property name="tooltip-text" translatable="yes">Requires appropriate log levels enabled.</property>
-                                        <property name="label" translatable="yes">Graphics Backend Log Level</property>
+                                        <property name="label" translatable="yes">OpenGL Log Level</property>
                                       </object>
                                       <packing>
                                         <property name="expand">False</property>
@@ -2682,7 +2344,7 @@
                                     <property name="visible">True</property>
                                     <property name="can-focus">True</property>
                                     <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Prints debug log messages in the console.&#13;Only use this if specifically instructed by a staff member, as it will make logs difficult to read and worsen emulator performance.</property>
+                                    <property name="tooltip-text" translatable="yes">Enables printing debug log messages</property>
                                     <property name="halign">start</property>
                                     <property name="margin-top">5</property>
                                     <property name="margin-bottom">5</property>
@@ -2692,24 +2354,6 @@
                                     <property name="expand">False</property>
                                     <property name="fill">True</property>
                                     <property name="position">21</property>
-                                  </packing>
-                                </child>
-                                <child>
-                                  <object class="GtkCheckButton" id="_traceLogToggle">
-                                    <property name="label" translatable="yes">Enable Trace Logs</property>
-                                    <property name="visible">True</property>
-                                    <property name="can-focus">True</property>
-                                    <property name="receives-default">False</property>
-                                    <property name="tooltip-text" translatable="yes">Prints trace log messages in the console. Does not affect performance.</property>
-                                    <property name="halign">start</property>
-                                    <property name="margin-top">5</property>
-                                    <property name="margin-bottom">5</property>
-                                    <property name="draw-indicator">True</property>
-                                  </object>
-                                  <packing>
-                                    <property name="expand">False</property>
-                                    <property name="fill">True</property>
-                                    <property name="position">22</property>
                                   </packing>
                                 </child>
                               </object>

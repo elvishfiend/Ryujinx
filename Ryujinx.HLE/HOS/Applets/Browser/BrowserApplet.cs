@@ -4,6 +4,8 @@ using Ryujinx.HLE.HOS.Services.Am.AppletAE;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Applets.Browser
 {

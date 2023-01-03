@@ -1,4 +1,4 @@
-﻿using LibHac.Ncm;
+﻿using Ryujinx.HLE.FileSystem;
 
 namespace Ryujinx.HLE.HOS.Services.Arp
 {
@@ -20,7 +20,7 @@ namespace Ryujinx.HLE.HOS.Services.Arp
                 {
                     TitleId             = 0x00,
                     Version             = 0x00,
-                    BaseGameStorageId   = (byte)StorageId.BuiltInSystem,
+                    BaseGameStorageId   = (byte)StorageId.NandSystem,
                     UpdateGameStorageId = (byte)StorageId.None
                 };
             }
@@ -35,7 +35,7 @@ namespace Ryujinx.HLE.HOS.Services.Arp
             {
                 TitleId             = context.Device.Application.TitleId,
                 Version             = 0x00,
-                BaseGameStorageId   = (byte)StorageId.BuiltInSystem,
+                BaseGameStorageId   = (byte)StorageId.NandSystem,
                 UpdateGameStorageId = (byte)StorageId.None
             };
         }

@@ -1,7 +1,7 @@
 using ARMeilleure.IntermediateRepresentation;
 using System.Collections.Generic;
 
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Translation
 {
@@ -27,11 +27,11 @@ namespace ARMeilleure.Translation
 
             for (BasicBlock block = cfg.Blocks.First; block != null; block = block.ListNext)
             {
-                for (Operation node = block.Operations.First; node != default; node = node.ListNext)
+                for (Node node = block.Operations.First; node != null; node = node.ListNext)
                 {
                     Operand dest = node.Destination;
 
-                    if (dest != default && dest.Kind == OperandKind.Register)
+                    if (dest != null && dest.Kind == OperandKind.Register)
                     {
                         node.Destination = GetLocal(dest);
                     }

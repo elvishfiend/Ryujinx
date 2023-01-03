@@ -1,5 +1,4 @@
 using Ryujinx.Common;
-using Ryujinx.Cpu;
 using Ryujinx.HLE.HOS.Ipc;
 using Ryujinx.HLE.HOS.Kernel.Common;
 using Ryujinx.HLE.HOS.Kernel.Threading;
@@ -23,7 +22,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             _operationEventReadableHandle = 0;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetCurrentTime() -> nn::time::PosixTime
         public ResultCode GetCurrentTime(ServiceCtx context)
         {
@@ -32,9 +31,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
                 return ResultCode.UninitializedClock;
             }
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            ResultCode result = _clockCore.GetCurrentTime(tickSource, out long posixTime);
+            ResultCode result = _clockCore.GetCurrentTime(context.Thread, out long posixTime);
 
             if (result == ResultCode.Success)
             {
@@ -44,7 +41,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return result;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // SetCurrentTime(nn::time::PosixTime)
         public ResultCode SetCurrentTime(ServiceCtx context)
         {
@@ -60,12 +57,10 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
 
             long posixTime = context.RequestData.ReadInt64();
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            return _clockCore.SetCurrentTime(tickSource, posixTime);
+            return _clockCore.SetCurrentTime(context.Thread, posixTime);
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // GetClockContext() -> nn::time::SystemClockContext
         public ResultCode GetSystemClockContext(ServiceCtx context)
         {
@@ -74,9 +69,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
                 return ResultCode.UninitializedClock;
             }
 
-            ITickSource tickSource = context.Device.System.TickSource;
-
-            ResultCode result = _clockCore.GetClockContext(tickSource, out SystemClockContext clockContext);
+            ResultCode result = _clockCore.GetClockContext(context.Thread, out SystemClockContext clockContext);
 
             if (result == ResultCode.Success)
             {
@@ -86,7 +79,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return result;
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // SetClockContext(nn::time::SystemClockContext)
         public ResultCode SetSystemClockContext(ServiceCtx context)
         {
@@ -107,7 +100,7 @@ namespace Ryujinx.HLE.HOS.Services.Time.StaticService
             return result;
         }
 
-        [CommandHipc(4)] // 9.0.0+
+        [Command(4)] // 9.0.0+
         // GetOperationEventReadableHandle() -> handle<copy>
         public ResultCode GetOperationEventReadableHandle(ServiceCtx context)
         {

@@ -1,5 +1,21 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using System;
-using System.Runtime.CompilerServices;
 
 namespace Ryujinx.Audio.Renderer.Dsp.Command
 {
@@ -11,7 +27,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         public CommandType CommandType => CommandType.DepopForMixBuffers;
 
-        public uint EstimatedProcessingTime { get; set; }
+        public ulong EstimatedProcessingTime { get; set; }
 
         public uint MixBufferOffset { get; }
 
@@ -20,6 +36,8 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
         public float Decay { get; }
 
         public Memory<float> DepopBuffer { get; }
+
+        private const int FixedPointPrecisionForDecay = 15;
 
         public DepopForMixBuffersCommand(Memory<float> depopBuffer, uint bufferOffset, uint mixBufferCount, int nodeId, uint sampleRate)
         {
@@ -39,13 +57,10 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe float ProcessDepopMix(float* buffer, float depopValue, uint sampleCount)
+        private float ProcessDepopMix(Span<float> buffer, float depopValue, uint sampleCount)
         {
-            if (depopValue < 0)
+            if (depopValue <= 0)
             {
-                depopValue = -depopValue;
-
                 for (int i = 0; i < sampleCount; i++)
                 {
                     depopValue = FloatingPointHelper.MultiplyRoundDown(Decay, depopValue);
@@ -66,25 +81,21 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
                 return depopValue;
             }
+
         }
 
         public void Process(CommandList context)
         {
-            Span<float> depopBuffer = DepopBuffer.Span;
-
             uint bufferCount = Math.Min(MixBufferOffset + MixBufferCount, context.BufferCount);
 
             for (int i = (int)MixBufferOffset; i < bufferCount; i++)
             {
-                float depopValue = depopBuffer[i];
+                float depopValue = DepopBuffer.Span[i];
                 if (depopValue != 0)
                 {
-                    unsafe
-                    {
-                        float* buffer = (float*)context.GetBufferPointer(i);
+                    Span<float> buffer = context.GetBuffer(i);
 
-                        depopBuffer[i] = ProcessDepopMix(buffer, depopValue, context.SampleCount);
-                    }
+                    DepopBuffer.Span[i] = ProcessDepopMix(buffer, depopValue, context.SampleCount);
                 }
             }
         }

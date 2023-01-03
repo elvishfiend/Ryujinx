@@ -1,6 +1,6 @@
 namespace ARMeilleure.CodeGen.X86
 {
-    readonly struct IntrinsicInfo
+    struct IntrinsicInfo
     {
         public X86Instruction Inst { get; }
         public IntrinsicType  Type { get; }

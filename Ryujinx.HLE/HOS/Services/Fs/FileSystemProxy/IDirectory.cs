@@ -1,52 +1,46 @@
 using LibHac;
-using LibHac.Common;
-using LibHac.Sf;
+using LibHac.Fs;
+using System;
+using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Fs.FileSystemProxy
 {
-    class IDirectory : DisposableIpcService
+    class IDirectory : IpcService
     {
-        private SharedRef<LibHac.FsSrv.Sf.IDirectory> _baseDirectory;
+        private LibHac.Fs.Fsa.IDirectory _baseDirectory;
 
-        public IDirectory(ref SharedRef<LibHac.FsSrv.Sf.IDirectory> directory)
+        public IDirectory(LibHac.Fs.Fsa.IDirectory directory)
         {
-            _baseDirectory = SharedRef<LibHac.FsSrv.Sf.IDirectory>.CreateMove(ref directory);
+            _baseDirectory = directory;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // Read() -> (u64 count, buffer<nn::fssrv::sf::IDirectoryEntry, 6, 0> entries)
         public ResultCode Read(ServiceCtx context)
         {
-            ulong bufferAddress = context.Request.ReceiveBuff[0].Position;
-            ulong bufferLen = context.Request.ReceiveBuff[0].Size;
+            long bufferPosition = context.Request.ReceiveBuff[0].Position;
+            long bufferLen      = context.Request.ReceiveBuff[0].Size;
 
-            using (var region = context.Memory.GetWritableRegion(bufferAddress, (int)bufferLen, true))
-            {
-                Result result = _baseDirectory.Get.Read(out long entriesRead, new OutBuffer(region.Memory.Span));
+            byte[]               entriesBytes = new byte[bufferLen];
+            Span<DirectoryEntry> entries      = MemoryMarshal.Cast<byte, DirectoryEntry>(entriesBytes);
 
-                context.ResponseData.Write(entriesRead);
+            Result result = _baseDirectory.Read(out long entriesRead, entries);
 
-                return (ResultCode)result.Value;
-            }
-        }
-
-        [CommandHipc(1)]
-        // GetEntryCount() -> u64
-        public ResultCode GetEntryCount(ServiceCtx context)
-        {
-            Result result = _baseDirectory.Get.GetEntryCount(out long entryCount);
-
-            context.ResponseData.Write(entryCount);
+            context.Memory.Write((ulong)bufferPosition, entriesBytes);
+            context.ResponseData.Write(entriesRead);
 
             return (ResultCode)result.Value;
         }
 
-        protected override void Dispose(bool isDisposing)
+        [Command(1)]
+        // GetEntryCount() -> u64
+        public ResultCode GetEntryCount(ServiceCtx context)
         {
-            if (isDisposing)
-            {
-                _baseDirectory.Destroy();
-            }
+            Result result = _baseDirectory.GetEntryCount(out long entryCount);
+
+            context.ResponseData.Write(entryCount);
+
+            return (ResultCode)result.Value;
         }
     }
 }

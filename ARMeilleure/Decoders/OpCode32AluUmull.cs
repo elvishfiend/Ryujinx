@@ -1,6 +1,6 @@
 ﻿namespace ARMeilleure.Decoders
 {
-    class OpCode32AluUmull : OpCode32, IOpCode32AluUmull
+    class OpCode32AluUmull : OpCode32
     {
         public int RdLo { get; }
         public int RdHi { get; }
@@ -10,7 +10,8 @@
         public bool NHigh { get; }
         public bool MHigh { get; }
 
-        public bool? SetFlags { get; }
+        public bool SetFlags { get; }
+        public DataOp DataOp { get; }
 
         public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32AluUmull(inst, address, opCode);
 
@@ -25,6 +26,7 @@
             MHigh = ((opCode >> 6) & 0x1) == 1;
 
             SetFlags = ((opCode >> 20) & 0x1) != 0;
+            DataOp = DataOp.Arithmetic;
         }
     }
 }

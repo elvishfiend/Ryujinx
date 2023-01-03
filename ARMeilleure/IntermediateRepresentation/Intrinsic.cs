@@ -1,6 +1,6 @@
 namespace ARMeilleure.IntermediateRepresentation
 {
-    enum Intrinsic : ushort
+    enum Intrinsic
     {
         X86Addpd,
         X86Addps,
@@ -47,7 +47,6 @@ namespace ARMeilleure.IntermediateRepresentation
         X86Divps,
         X86Divsd,
         X86Divss,
-        X86Gf2p8affineqb,
         X86Haddpd,
         X86Haddps,
         X86Insertps,
@@ -72,7 +71,6 @@ namespace ARMeilleure.IntermediateRepresentation
         X86Paddd,
         X86Paddq,
         X86Paddw,
-        X86Palignr,
         X86Pand,
         X86Pandn,
         X86Pavgb,
@@ -142,9 +140,6 @@ namespace ARMeilleure.IntermediateRepresentation
         X86Roundss,
         X86Rsqrtps,
         X86Rsqrtss,
-        X86Sha256Msg1,
-        X86Sha256Msg2,
-        X86Sha256Rnds2,
         X86Shufpd,
         X86Shufps,
         X86Sqrtpd,

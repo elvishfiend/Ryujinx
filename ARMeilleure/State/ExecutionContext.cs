@@ -1,5 +1,6 @@
 using ARMeilleure.Memory;
 using System;
+using System.Diagnostics;
 
 namespace ARMeilleure.State
 {
@@ -13,47 +14,38 @@ namespace ARMeilleure.State
 
         private bool _interrupted;
 
-        private readonly ICounter _counter;
+        private static Stopwatch _tickCounter;
 
-        public ulong Pc => _nativeContext.GetPc();
+        private static double _hostTickFreq;
 
-        public uint CtrEl0 => 0x8444c004;
+        public uint CtrEl0   => 0x8444c004;
         public uint DczidEl0 => 0x00000004;
 
-        public ulong CntfrqEl0 => _counter.Frequency;
-        public ulong CntpctEl0 => _counter.Counter;
+        public ulong CntfrqEl0 { get; set; }
+        public ulong CntpctEl0
+        {
+            get
+            {
+                double ticks = _tickCounter.ElapsedTicks * _hostTickFreq;
+
+                return (ulong)(ticks * CntfrqEl0);
+            }
+        }
 
         // CNTVCT_EL0 = CNTPCT_EL0 - CNTVOFF_EL2
         // Since EL2 isn't implemented, CNTVOFF_EL2 = 0
         public ulong CntvctEl0 => CntpctEl0;
 
+        public static TimeSpan ElapsedTime => _tickCounter.Elapsed;
+        public static long ElapsedTicks => _tickCounter.ElapsedTicks;
+        public static double TickFrequency => _hostTickFreq;
+
         public long TpidrEl0 { get; set; }
-        public long TpidrroEl0 { get; set; }
+        public long Tpidr    { get; set; }
 
-        public uint Pstate
-        {
-            get => _nativeContext.GetPstate();
-            set => _nativeContext.SetPstate(value);
-        }
-
-        public FPSR Fpsr
-        {
-            get => (FPSR)_nativeContext.GetFPState((uint)FPSR.Mask);
-            set => _nativeContext.SetFPState((uint)value, (uint)FPSR.Mask);
-        }
-
-        public FPCR Fpcr
-        {
-            get => (FPCR)_nativeContext.GetFPState((uint)FPCR.Mask);
-            set => _nativeContext.SetFPState((uint)value, (uint)FPCR.Mask);
-        }
+        public FPCR Fpcr { get; set; }
+        public FPSR Fpsr { get; set; }
         public FPCR StandardFpcrValue => (Fpcr & (FPCR.Ahp)) | FPCR.Dn | FPCR.Fz;
-
-        public FPSCR Fpscr
-        {
-            get => (FPSCR)_nativeContext.GetFPState((uint)FPSCR.Mask);
-            set => _nativeContext.SetFPState((uint)value, (uint)FPSCR.Mask);
-        }
 
         public bool IsAarch32 { get; set; }
 
@@ -74,44 +66,38 @@ namespace ARMeilleure.State
             }
         }
 
-        public bool Running
+        public bool Running { get; private set; }
+
+        public event EventHandler<EventArgs>              Interrupt;
+        public event EventHandler<InstExceptionEventArgs> Break;
+        public event EventHandler<InstExceptionEventArgs> SupervisorCall;
+        public event EventHandler<InstUndefinedEventArgs> Undefined;
+
+        static ExecutionContext()
         {
-            get => _nativeContext.GetRunning();
-            private set => _nativeContext.SetRunning(value);
+            _hostTickFreq = 1.0 / Stopwatch.Frequency;
+
+            _tickCounter = new Stopwatch();
+
+            _tickCounter.Start();
         }
 
-        private readonly ExceptionCallbackNoArgs _interruptCallback;
-        private readonly ExceptionCallback _breakCallback;
-        private readonly ExceptionCallback _supervisorCallback;
-        private readonly ExceptionCallback _undefinedCallback;
-
-        public ExecutionContext(
-            IJitMemoryAllocator allocator,
-            ICounter counter,
-            ExceptionCallbackNoArgs interruptCallback = null,
-            ExceptionCallback breakCallback = null,
-            ExceptionCallback supervisorCallback = null,
-            ExceptionCallback undefinedCallback = null)
+        public ExecutionContext(IJitMemoryAllocator allocator)
         {
             _nativeContext = new NativeContext(allocator);
-            _counter = counter;
-            _interruptCallback = interruptCallback;
-            _breakCallback = breakCallback;
-            _supervisorCallback = supervisorCallback;
-            _undefinedCallback = undefinedCallback;
 
             Running = true;
 
             _nativeContext.SetCounter(MinCountForCheck);
         }
 
-        public ulong GetX(int index) => _nativeContext.GetX(index);
-        public void SetX(int index, ulong value) => _nativeContext.SetX(index, value);
+        public ulong GetX(int index)              => _nativeContext.GetX(index);
+        public void  SetX(int index, ulong value) => _nativeContext.SetX(index, value);
 
-        public V128 GetV(int index) => _nativeContext.GetV(index);
+        public V128 GetV(int index)             => _nativeContext.GetV(index);
         public void SetV(int index, V128 value) => _nativeContext.SetV(index, value);
 
-        public bool GetPstateFlag(PState flag) => _nativeContext.GetPstateFlag(flag);
+        public bool GetPstateFlag(PState flag)             => _nativeContext.GetPstateFlag(flag);
         public void SetPstateFlag(PState flag, bool value) => _nativeContext.SetPstateFlag(flag, value);
 
         public bool GetFPstateFlag(FPState flag) => _nativeContext.GetFPStateFlag(flag);
@@ -123,7 +109,7 @@ namespace ARMeilleure.State
             {
                 _interrupted = false;
 
-                _interruptCallback?.Invoke(this);
+                Interrupt?.Invoke(this, EventArgs.Empty);
             }
 
             _nativeContext.SetCounter(MinCountForCheck);
@@ -136,23 +122,22 @@ namespace ARMeilleure.State
 
         internal void OnBreak(ulong address, int imm)
         {
-            _breakCallback?.Invoke(this, address, imm);
+            Break?.Invoke(this, new InstExceptionEventArgs(address, imm));
         }
 
         internal void OnSupervisorCall(ulong address, int imm)
         {
-            _supervisorCallback?.Invoke(this, address, imm);
+            SupervisorCall?.Invoke(this, new InstExceptionEventArgs(address, imm));
         }
 
         internal void OnUndefined(ulong address, int opCode)
         {
-            _undefinedCallback?.Invoke(this, address, opCode);
+            Undefined?.Invoke(this, new InstUndefinedEventArgs(address, opCode));
         }
 
         public void StopRunning()
         {
             Running = false;
-
             _nativeContext.SetCounter(0);
         }
 

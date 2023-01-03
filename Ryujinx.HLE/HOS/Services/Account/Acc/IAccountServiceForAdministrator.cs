@@ -14,42 +14,42 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             _applicationServiceServer = new ApplicationServiceServer(serviceFlag);
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetUserCount() -> i32
         public ResultCode GetUserCount(ServiceCtx context)
         {
             return _applicationServiceServer.GetUserCountImpl(context);
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetUserExistence(nn::account::Uid) -> bool
         public ResultCode GetUserExistence(ServiceCtx context)
         {
             return _applicationServiceServer.GetUserExistenceImpl(context);
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // ListAllUsers() -> array<nn::account::Uid, 0xa>
         public ResultCode ListAllUsers(ServiceCtx context)
         {
             return _applicationServiceServer.ListAllUsers(context);
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // ListOpenUsers() -> array<nn::account::Uid, 0xa>
         public ResultCode ListOpenUsers(ServiceCtx context)
         {
             return _applicationServiceServer.ListOpenUsers(context);
         }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // GetLastOpenedUser() -> nn::account::Uid
         public ResultCode GetLastOpenedUser(ServiceCtx context)
         {
             return _applicationServiceServer.GetLastOpenedUser(context);
         }
 
-        [CommandHipc(5)]
+        [Command(5)]
         // GetProfile(nn::account::Uid) -> object<nn::account::profile::IProfile>
         public ResultCode GetProfile(ServiceCtx context)
         {
@@ -63,7 +63,7 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return resultCode;
         }
 
-        [CommandHipc(50)]
+        [Command(50)]
         // IsUserRegistrationRequestPermitted(pid) -> bool
         public ResultCode IsUserRegistrationRequestPermitted(ServiceCtx context)
         {
@@ -72,14 +72,14 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return _applicationServiceServer.IsUserRegistrationRequestPermitted(context);
         }
 
-        [CommandHipc(51)]
+        [Command(51)]
         // TrySelectUserWithoutInteraction(bool) -> nn::account::Uid
         public ResultCode TrySelectUserWithoutInteraction(ServiceCtx context)
         {
             return _applicationServiceServer.TrySelectUserWithoutInteraction(context);
         }
 
-        [CommandHipc(102)]
+        [Command(102)]
         // GetBaasAccountManagerForSystemService(nn::account::Uid) -> object<nn::account::baas::IManagerForApplication>
         public ResultCode GetBaasAccountManagerForSystemService(ServiceCtx context)
         {
@@ -98,20 +98,20 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return ResultCode.Success;
         }
 
-        [CommandHipc(140)] // 6.0.0+
+        [Command(140)] // 6.0.0+
         // ListQualifiedUsers() -> array<nn::account::Uid, 0xa>
         public ResultCode ListQualifiedUsers(ServiceCtx context)
         {
             return _applicationServiceServer.ListQualifiedUsers(context);
         }
 
-        [CommandHipc(205)]
+        [Command(205)]
         // GetProfileEditor(nn::account::Uid) -> object<nn::account::profile::IProfileEditor>
         public ResultCode GetProfileEditor(ServiceCtx context)
         {
             UserId userId = context.RequestData.ReadStruct<UserId>();
 
-            if (!context.Device.System.AccountManager.TryGetUser(userId, out UserProfile userProfile))
+            if (!context.Device.System.State.Account.TryGetUser(userId, out UserProfile userProfile))
             {
                 Logger.Warning?.Print(LogClass.ServiceAcc, $"User 0x{userId} not found!");
 

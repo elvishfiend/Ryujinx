@@ -7,7 +7,7 @@ namespace Ryujinx.HLE.HOS.Services.Ldn
     {
         public IUserServiceCreator(ServiceCtx context) { }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // CreateUserLocalCommunicationService() -> object<nn::ldn::detail::IUserLocalCommunicationService>
         public ResultCode CreateUserLocalCommunicationService(ServiceCtx context)
         {

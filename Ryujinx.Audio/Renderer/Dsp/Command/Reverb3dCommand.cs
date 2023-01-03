@@ -1,9 +1,25 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Renderer.Dsp.State;
 using Ryujinx.Audio.Renderer.Parameter.Effect;
 using Ryujinx.Audio.Renderer.Server.Effect;
 using System;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 
 namespace Ryujinx.Audio.Renderer.Dsp.Command
 {
@@ -31,7 +47,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         public CommandType CommandType => CommandType.Reverb3d;
 
-        public uint EstimatedProcessingTime { get; set; }
+        public ulong EstimatedProcessingTime { get; set; }
 
         public ushort InputBufferIndex { get; }
         public ushort OutputBufferIndex { get; }
@@ -46,7 +62,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         private Reverb3dParameter _parameter;
 
-        public Reverb3dCommand(uint bufferOffset, Reverb3dParameter parameter, Memory<Reverb3dState> state, bool isEnabled, ulong workBuffer, int nodeId, bool newEffectChannelMappingSupported)
+        public Reverb3dCommand(uint bufferOffset, Reverb3dParameter parameter, Memory<Reverb3dState> state, bool isEnabled, ulong workBuffer, int nodeId)
         {
             Enabled = true;
             IsEffectEnabled = isEnabled;
@@ -63,53 +79,46 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
                 InputBufferIndices[i] = (ushort)(bufferOffset + Parameter.Input[i]);
                 OutputBufferIndices[i] = (ushort)(bufferOffset + Parameter.Output[i]);
             }
-
-            // NOTE: We do the opposite as Nintendo here for now to restore previous behaviour
-            // TODO: Update reverb 3d processing and remove this to use RemapLegacyChannelEffectMappingToChannelResourceMapping.
-            DataSourceHelper.RemapChannelResourceMappingToLegacy(newEffectChannelMappingSupported, InputBufferIndices);
-            DataSourceHelper.RemapChannelResourceMappingToLegacy(newEffectChannelMappingSupported, OutputBufferIndices);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void ProcessReverb3dMono(ref Reverb3dState state, ReadOnlySpan<IntPtr> outputBuffers, ReadOnlySpan<IntPtr> inputBuffers, uint sampleCount)
+        private void ProcessReverb3dMono(Memory<float>[] outputBuffers, ReadOnlyMemory<float>[] inputBuffers, uint sampleCount)
         {
-            ProcessReverb3dGeneric(ref state, outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableMono, TargetEarlyDelayLineIndicesTableMono, TargetOutputFeedbackIndicesTableMono);
+            ProcessReverb3dGeneric(outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableMono, TargetEarlyDelayLineIndicesTableMono, TargetOutputFeedbackIndicesTableMono);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void ProcessReverb3dStereo(ref Reverb3dState state, ReadOnlySpan<IntPtr> outputBuffers, ReadOnlySpan<IntPtr> inputBuffers, uint sampleCount)
+        private void ProcessReverb3dStereo(Memory<float>[] outputBuffers, ReadOnlyMemory<float>[] inputBuffers, uint sampleCount)
         {
-            ProcessReverb3dGeneric(ref state, outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableStereo, TargetEarlyDelayLineIndicesTableStereo, TargetOutputFeedbackIndicesTableStereo);
+            ProcessReverb3dGeneric(outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableStereo, TargetEarlyDelayLineIndicesTableStereo, TargetOutputFeedbackIndicesTableStereo);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void ProcessReverb3dQuadraphonic(ref Reverb3dState state, ReadOnlySpan<IntPtr> outputBuffers, ReadOnlySpan<IntPtr> inputBuffers, uint sampleCount)
+        private void ProcessReverb3dQuadraphonic(Memory<float>[] outputBuffers, ReadOnlyMemory<float>[] inputBuffers, uint sampleCount)
         {
-            ProcessReverb3dGeneric(ref state, outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableQuadraphonic, TargetEarlyDelayLineIndicesTableQuadraphonic, TargetOutputFeedbackIndicesTableQuadraphonic);
+            ProcessReverb3dGeneric(outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableQuadraphonic, TargetEarlyDelayLineIndicesTableQuadraphonic, TargetOutputFeedbackIndicesTableQuadraphonic);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void ProcessReverb3dSurround(ref Reverb3dState state, ReadOnlySpan<IntPtr> outputBuffers, ReadOnlySpan<IntPtr> inputBuffers, uint sampleCount)
+        private void ProcessReverb3dSurround(Memory<float>[] outputBuffers, ReadOnlyMemory<float>[] inputBuffers, uint sampleCount)
         {
-            ProcessReverb3dGeneric(ref state, outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableSurround, TargetEarlyDelayLineIndicesTableSurround, TargetOutputFeedbackIndicesTableSurround);
+            ProcessReverb3dGeneric(outputBuffers, inputBuffers, sampleCount, OutputEarlyIndicesTableSurround, TargetEarlyDelayLineIndicesTableSurround, TargetOutputFeedbackIndicesTableSurround);
         }
 
-        private unsafe void ProcessReverb3dGeneric(ref Reverb3dState state, ReadOnlySpan<IntPtr> outputBuffers, ReadOnlySpan<IntPtr> inputBuffers, uint sampleCount, ReadOnlySpan<int> outputEarlyIndicesTable, ReadOnlySpan<int> targetEarlyDelayLineIndicesTable, ReadOnlySpan<int> targetOutputFeedbackIndicesTable)
+        private void ProcessReverb3dGeneric(Memory<float>[] outputBuffers, ReadOnlyMemory<float>[] inputBuffers, uint sampleCount, ReadOnlySpan<int> outputEarlyIndicesTable, ReadOnlySpan<int> targetEarlyDelayLineIndicesTable, ReadOnlySpan<int> targetOutputFeedbackIndicesTable)
         {
             const int delayLineSampleIndexOffset = 1;
+
+            ref Reverb3dState state = ref State.Span[0];
 
             bool isMono = Parameter.ChannelCount == 1;
             bool isSurround = Parameter.ChannelCount == 6;
 
-            Span<float> outputValues = stackalloc float[Constants.ChannelCountMax];
-            Span<float> channelInput = stackalloc float[Parameter.ChannelCount];
-            Span<float> feedbackValues = stackalloc float[4];
-            Span<float> feedbackOutputValues = stackalloc float[4];
-            Span<float> values = stackalloc float[4];
+            float[] outputValues = new float[Constants.ChannelCountMax];
+            float[] channelInput = new float[Parameter.ChannelCount];
+            float[] feedbackValues = new float[4];
+            float[] feedbackOutputValues = new float[4];
+            float[] values = new float[4];
 
             for (int sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++)
             {
-                outputValues.Fill(0);
+                outputValues.AsSpan().Fill(0);
 
                 float tapOut = state.PreDelayLine.TapUnsafe(state.ReflectionDelayTime, delayLineSampleIndexOffset);
 
@@ -127,7 +136,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
                 for (int channelIndex = 0; channelIndex < Parameter.ChannelCount; channelIndex++)
                 {
-                    channelInput[channelIndex] = *((float*)inputBuffers[channelIndex] + sampleIndex);
+                    channelInput[channelIndex] = inputBuffers[channelIndex].Span[sampleIndex];
                     targetPreDelayValue += channelInput[channelIndex];
                 }
 
@@ -171,53 +180,53 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
                     if (targetOutputFeedbackIndex >= 0)
                     {
-                        *((float*)outputBuffers[channelIndex] + sampleIndex) = (outputValues[channelIndex] + values[targetOutputFeedbackIndex] + channelInput[channelIndex] * state.DryGain);
+                        outputBuffers[channelIndex].Span[sampleIndex] = (outputValues[channelIndex] + values[targetOutputFeedbackIndex] + channelInput[channelIndex] * state.DryGain);
                     }
                 }
 
                 if (isMono)
                 {
-                    *((float*)outputBuffers[0] + sampleIndex) += values[1];
+                    outputBuffers[0].Span[sampleIndex] += values[1];
                 }
 
                 if (isSurround)
                 {
-                    *((float*)outputBuffers[4] + sampleIndex) += (outputValues[4] + state.FrontCenterDelayLine.Update((values[2] - values[3]) * 0.5f) + channelInput[4] * state.DryGain);
+                    outputBuffers[4].Span[sampleIndex] += (outputValues[4] + state.BackLeftDelayLine.Update((values[2] - values[3]) * 0.5f) + channelInput[4] * state.DryGain);
                 }
             }
         }
 
-        public void ProcessReverb3d(CommandList context, ref Reverb3dState state)
+        public void ProcessReverb3d(CommandList context)
         {
             Debug.Assert(Parameter.IsChannelCountValid());
 
             if (IsEffectEnabled && Parameter.IsChannelCountValid())
             {
-                Span<IntPtr> inputBuffers = stackalloc IntPtr[Parameter.ChannelCount];
-                Span<IntPtr> outputBuffers = stackalloc IntPtr[Parameter.ChannelCount];
+                ReadOnlyMemory<float>[] inputBuffers = new ReadOnlyMemory<float>[Parameter.ChannelCount];
+                Memory<float>[] outputBuffers = new Memory<float>[Parameter.ChannelCount];
 
                 for (int i = 0; i < Parameter.ChannelCount; i++)
                 {
-                    inputBuffers[i] = context.GetBufferPointer(InputBufferIndices[i]);
-                    outputBuffers[i] = context.GetBufferPointer(OutputBufferIndices[i]);
+                    inputBuffers[i] = context.GetBufferMemory(InputBufferIndices[i]);
+                    outputBuffers[i] = context.GetBufferMemory(OutputBufferIndices[i]);
                 }
 
                 switch (Parameter.ChannelCount)
                 {
                     case 1:
-                        ProcessReverb3dMono(ref state, outputBuffers, inputBuffers, context.SampleCount);
+                        ProcessReverb3dMono(outputBuffers, inputBuffers, context.SampleCount);
                         break;
                     case 2:
-                        ProcessReverb3dStereo(ref state, outputBuffers, inputBuffers, context.SampleCount);
+                        ProcessReverb3dStereo(outputBuffers, inputBuffers, context.SampleCount);
                         break;
                     case 4:
-                        ProcessReverb3dQuadraphonic(ref state, outputBuffers, inputBuffers, context.SampleCount);
+                        ProcessReverb3dQuadraphonic(outputBuffers, inputBuffers, context.SampleCount);
                         break;
                     case 6:
-                        ProcessReverb3dSurround(ref state, outputBuffers, inputBuffers, context.SampleCount);
+                        ProcessReverb3dSurround(outputBuffers, inputBuffers, context.SampleCount);
                         break;
                     default:
-                        throw new NotImplementedException(Parameter.ChannelCount.ToString());
+                        throw new NotImplementedException($"{Parameter.ChannelCount}");
                 }
             }
             else
@@ -226,7 +235,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
                 {
                     if (InputBufferIndices[i] != OutputBufferIndices[i])
                     {
-                        context.CopyBuffer(OutputBufferIndices[i], InputBufferIndices[i]);
+                        context.GetBufferMemory(InputBufferIndices[i]).CopyTo(context.GetBufferMemory(OutputBufferIndices[i]));
                     }
                 }
             }
@@ -248,7 +257,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
                 }
             }
 
-            ProcessReverb3d(context, ref state);
+            ProcessReverb3d(context);
         }
     }
 }

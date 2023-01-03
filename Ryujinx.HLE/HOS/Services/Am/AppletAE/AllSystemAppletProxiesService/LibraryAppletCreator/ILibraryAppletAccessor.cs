@@ -8,7 +8,7 @@ using System;
 
 namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.LibraryAppletCreator
 {
-    class ILibraryAppletAccessor : DisposableIpcService
+    class ILibraryAppletAccessor : IpcService, IDisposable
     {
         private KernelContext _kernelContext;
 
@@ -24,8 +24,6 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
         private int _stateChangedEventHandle;
         private int _normalOutDataEventHandle;
         private int _interactiveOutDataEventHandle;
-
-        private int _indirectLayerHandle;
 
         public ILibraryAppletAccessor(AppletId appletId, Horizon system)
         {
@@ -62,7 +60,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             _interactiveOutDataEvent.WritableEvent.Signal();
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetAppletStateChangedEvent() -> handle<copy>
         public ResultCode GetAppletStateChangedEvent(ServiceCtx context)
         {
@@ -79,14 +77,14 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.Success;
         }
 
-        [CommandHipc(10)]
+        [Command(10)]
         // Start()
         public ResultCode Start(ServiceCtx context)
         {
             return (ResultCode)_applet.Start(_normalSession.GetConsumer(), _interactiveSession.GetConsumer());
         }
 
-        [CommandHipc(20)]
+        [Command(20)]
         // RequestExit()
         public ResultCode RequestExit(ServiceCtx context)
         {
@@ -98,14 +96,14 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.Success;
         }
 
-        [CommandHipc(30)]
+        [Command(30)]
         // GetResult()
         public ResultCode GetResult(ServiceCtx context)
         {
             return (ResultCode)_applet.GetResult();
         }
 
-        [CommandHipc(60)]
+        [Command(60)]
         // PresetLibraryAppletGpuTimeSliceZero()
         public ResultCode PresetLibraryAppletGpuTimeSliceZero(ServiceCtx context)
         {
@@ -118,7 +116,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.Success;
         }
 
-        [CommandHipc(100)]
+        [Command(100)]
         // PushInData(object<nn::am::service::IStorage>)
         public ResultCode PushInData(ServiceCtx context)
         {
@@ -129,7 +127,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.Success;
         }
 
-        [CommandHipc(101)]
+        [Command(101)]
         // PopOutData() -> object<nn::am::service::IStorage>
         public ResultCode PopOutData(ServiceCtx context)
         {
@@ -145,7 +143,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.NotAvailable;
         }
 
-        [CommandHipc(103)]
+        [Command(103)]
         // PushInteractiveInData(object<nn::am::service::IStorage>)
         public ResultCode PushInteractiveInData(ServiceCtx context)
         {
@@ -156,7 +154,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.Success;
         }
 
-        [CommandHipc(104)]
+        [Command(104)]
         // PopInteractiveOutData() -> object<nn::am::service::IStorage>
         public ResultCode PopInteractiveOutData(ServiceCtx context)
         {
@@ -172,7 +170,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.NotAvailable;
         }
 
-        [CommandHipc(105)]
+        [Command(105)]
         // GetPopOutDataEvent() -> handle<copy>
         public ResultCode GetPopOutDataEvent(ServiceCtx context)
         {
@@ -189,7 +187,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.Success;
         }
 
-        [CommandHipc(106)]
+        [Command(106)]
         // GetPopInteractiveOutDataEvent() -> handle<copy>
         public ResultCode GetPopInteractiveOutDataEvent(ServiceCtx context)
         {
@@ -206,56 +204,59 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Lib
             return ResultCode.Success;
         }
 
-        [CommandHipc(110)]
+        [Command(110)]
         // NeedsToExitProcess()
         public ResultCode NeedsToExitProcess(ServiceCtx context)
         {
             return ResultCode.Stubbed;
         }
 
-        [CommandHipc(150)]
+        [Command(150)]
         // RequestForAppletToGetForeground()
         public ResultCode RequestForAppletToGetForeground(ServiceCtx context)
         {
             return ResultCode.Stubbed;
         }
 
-        [CommandHipc(160)] // 2.0.0+
+        [Command(160)] // 2.0.0+
         // GetIndirectLayerConsumerHandle() -> u64 indirect_layer_consumer_handle
         public ResultCode GetIndirectLayerConsumerHandle(ServiceCtx context)
         {
-            Horizon horizon = _kernelContext.Device.System;
+            /*
+            if (indirectLayerConsumer == null)
+            {
+                return ResultCode.ObjectInvalid;
+            }
+            */
 
-            _indirectLayerHandle = horizon.AppletState.IndirectLayerHandles.Add(_applet);
+            // TODO: Official sw uses this during LibraryApplet creation when LibraryAppletMode is 0x3.
+            //       Since we don't support IndirectLayer and the handle couldn't be 0, it's fine to return 1.
 
-            context.ResponseData.Write((ulong)_indirectLayerHandle);
+            ulong indirectLayerConsumerHandle = 1;
+
+            context.ResponseData.Write(indirectLayerConsumerHandle);
+
+            Logger.Stub?.PrintStub(LogClass.ServiceAm, new { indirectLayerConsumerHandle });
 
             return ResultCode.Success;
         }
 
-        protected override void Dispose(bool isDisposing)
+        public void Dispose()
         {
-            if (isDisposing)
+            if (_stateChangedEventHandle != 0)
             {
-                if (_stateChangedEventHandle != 0)
-                {
-                    _kernelContext.Syscall.CloseHandle(_stateChangedEventHandle);
-                }
-
-                if (_normalOutDataEventHandle != 0)
-                {
-                    _kernelContext.Syscall.CloseHandle(_normalOutDataEventHandle);
-                }
-
-                if (_interactiveOutDataEventHandle != 0)
-                {
-                    _kernelContext.Syscall.CloseHandle(_interactiveOutDataEventHandle);
-                }
+                _kernelContext.Syscall.CloseHandle(_stateChangedEventHandle);
             }
 
-            Horizon horizon = _kernelContext.Device.System;
+            if (_normalOutDataEventHandle != 0)
+            {
+                _kernelContext.Syscall.CloseHandle(_normalOutDataEventHandle);
+            }
 
-            horizon.AppletState.IndirectLayerHandles.Delete(_indirectLayerHandle);
+            if (_interactiveOutDataEventHandle != 0)
+            {
+                _kernelContext.Syscall.CloseHandle(_interactiveOutDataEventHandle);
+            }
         }
     }
 }

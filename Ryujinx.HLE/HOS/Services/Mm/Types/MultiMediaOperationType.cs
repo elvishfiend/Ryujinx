@@ -2,9 +2,10 @@
 {
     enum MultiMediaOperationType : uint
     {
-        Ram   = 2,
-        NvEnc = 5,
-        NvDec = 6,
-        NvJpg = 7
+        // TODO: figure out the unknown variants.
+        Unknown2    = 2,
+        VideoDecode = 5,
+        VideoEncode = 6,
+        Unknown7    = 7
     }
 }

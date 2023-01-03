@@ -1,11 +1,29 @@
-using System;
 using System.Numerics;
 
 namespace ARMeilleure.Common
 {
     static class BitUtils
     {
-        private static ReadOnlySpan<sbyte> HbsNibbleLut => new sbyte[] { -1, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3 };
+        private static readonly sbyte[] HbsNibbleLut;
+
+        static BitUtils()
+        {
+            HbsNibbleLut = new sbyte[] { -1, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3 };
+        }
+
+        public static int CountBits(int value)
+        {
+            int count = 0;
+
+            while (value != 0)
+            {
+                value &= ~(value & -value);
+
+                count++;
+            }
+
+            return count;
+        }
 
         public static long FillWithOnes(int bits)
         {

@@ -5,7 +5,7 @@ using ARMeilleure.Translation;
 
 using static ARMeilleure.Instructions.InstEmitFlowHelper;
 using static ARMeilleure.Instructions.InstEmitHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -34,7 +34,7 @@ namespace ARMeilleure.Instructions
 
             uint pc = op.GetPc();
 
-            bool isThumb = ((OpCode32)context.CurrOp).IsThumb;
+            bool isThumb = IsThumb(context.CurrOp);
 
             uint currentPc = isThumb
                 ? pc | 1
@@ -61,17 +61,17 @@ namespace ARMeilleure.Instructions
             Operand addr = context.Copy(GetIntA32(context, op.Rm));
             Operand bitOne = context.BitwiseAnd(addr, Const(1));
 
-            bool isThumb = ((OpCode32)context.CurrOp).IsThumb;
+            bool isThumb = IsThumb(context.CurrOp);
 
             uint currentPc = isThumb
-                ? (pc - 2) | 1
+                ? pc | 1
                 : pc - 4;
 
             SetIntA32(context, GetBankedRegisterAlias(context.Mode, RegisterAlias.Aarch32Lr), Const(currentPc));
 
             SetFlag(context, PState.TFlag, bitOne);
 
-            EmitBxWritePc(context, addr);
+            EmitVirtualCall(context, addr);
         }
 
         public static void Bx(ArmEmitterContext context)
@@ -79,58 +79,6 @@ namespace ARMeilleure.Instructions
             IOpCode32BReg op = (IOpCode32BReg)context.CurrOp;
 
             EmitBxWritePc(context, GetIntA32(context, op.Rm), op.Rm);
-        }
-
-        public static void Cbnz(ArmEmitterContext context) => EmitCb(context, onNotZero: true);
-        public static void Cbz(ArmEmitterContext context)  => EmitCb(context, onNotZero: false);
-
-        private static void EmitCb(ArmEmitterContext context, bool onNotZero)
-        {
-            OpCodeT16BImmCmp op = (OpCodeT16BImmCmp)context.CurrOp;
-
-            Operand value = GetIntA32(context, op.Rn);
-            Operand lblTarget = context.GetLabel((ulong)op.Immediate);
-
-            if (onNotZero)
-            {
-                context.BranchIfTrue(lblTarget, value);
-            }
-            else
-            {
-                context.BranchIfFalse(lblTarget, value);
-            }
-        }
-
-        public static void It(ArmEmitterContext context)
-        {
-            OpCodeT16IfThen op = (OpCodeT16IfThen)context.CurrOp;
-
-            context.SetIfThenBlockState(op.IfThenBlockConds);
-        }
-
-        public static void Tbb(ArmEmitterContext context) => EmitTb(context, halfword: false);
-        public static void Tbh(ArmEmitterContext context)  => EmitTb(context, halfword: true);
-
-        private static void EmitTb(ArmEmitterContext context, bool halfword)
-        {
-            OpCodeT32Tb op = (OpCodeT32Tb)context.CurrOp;
-
-            Operand halfwords;
-
-            if (halfword)
-            {
-                Operand address = context.Add(GetIntA32(context, op.Rn), context.ShiftLeft(GetIntA32(context, op.Rm), Const(1)));
-                halfwords = InstEmitMemoryHelper.EmitReadInt(context, address, 1);
-            }
-            else
-            {
-                Operand address = context.Add(GetIntA32(context, op.Rn), GetIntA32(context, op.Rm));
-                halfwords = InstEmitMemoryHelper.EmitReadIntAligned(context, address, 0);
-            }
-
-            Operand targetAddress = context.Add(Const((int)op.GetPc()), context.ShiftLeft(halfwords, Const(1)));
-
-            EmitVirtualJump(context, targetAddress, isReturn: false);
         }
     }
 }

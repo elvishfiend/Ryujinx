@@ -2,7 +2,7 @@ using System;
 
 namespace ARMeilleure.IntermediateRepresentation
 {
-    readonly struct Register : IEquatable<Register>
+    struct Register : IEquatable<Register>
     {
         public int Index { get; }
 

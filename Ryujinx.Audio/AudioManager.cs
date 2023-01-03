@@ -1,3 +1,20 @@
+﻿//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using System;
 using System.Threading;
 
@@ -28,8 +45,6 @@ namespace Ryujinx.Audio
         /// </summary>
         private Thread _workerThread;
 
-        private bool _isRunning;
-
         /// <summary>
         /// Create a new <see cref="AudioManager"/>.
         /// </summary>
@@ -37,7 +52,6 @@ namespace Ryujinx.Audio
         {
             _updateRequiredEvents = new ManualResetEvent[2];
             _actions = new Action[2];
-            _isRunning = false;
 
             // Termination event.
             _updateRequiredEvents[1] = new ManualResetEvent(false);
@@ -58,7 +72,6 @@ namespace Ryujinx.Audio
                 throw new InvalidOperationException();
             }
 
-            _isRunning = true;
             _workerThread.Start();
         }
 
@@ -83,7 +96,7 @@ namespace Ryujinx.Audio
         /// </summary>
         private void Update()
         {
-            while (_isRunning)
+            while (true)
             {
                 int index = WaitHandle.WaitAny(_updateRequiredEvents);
 
@@ -103,14 +116,6 @@ namespace Ryujinx.Audio
                     _updateRequiredEvents[0].Reset();
                 }
             }
-        }
-
-        /// <summary>
-        /// Stop updating the <see cref="AudioManager"/> without stopping the worker thread.
-        /// </summary>
-        public void StopUpdates()
-        {
-            _isRunning = false;
         }
 
         public void Dispose()

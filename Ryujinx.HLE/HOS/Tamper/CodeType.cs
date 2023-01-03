@@ -1,4 +1,10 @@
-﻿namespace Ryujinx.HLE.HOS.Tamper
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Ryujinx.HLE.HOS.Tamper
 {
     /// <summary>
     /// The opcodes specified for the Atmosphere Cheat VM.

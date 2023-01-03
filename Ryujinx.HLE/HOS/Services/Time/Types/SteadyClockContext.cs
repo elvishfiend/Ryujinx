@@ -1,9 +1,9 @@
-﻿using System;
+﻿using Ryujinx.HLE.Utilities;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Time.Types
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     struct SteadyClockContext
     {
         public ulong   InternalOffset;

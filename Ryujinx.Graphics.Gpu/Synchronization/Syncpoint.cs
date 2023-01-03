@@ -34,13 +34,13 @@ namespace Ryujinx.Graphics.Gpu.Synchronization
         /// <param name="threshold">The target threshold</param>
         /// <param name="callback">The callback to call when the threshold is reached</param>
         /// <returns>The created SyncpointWaiterHandle object or null if already past threshold</returns>
-        public SyncpointWaiterHandle RegisterCallback(uint threshold, Action<SyncpointWaiterHandle> callback)
+        public SyncpointWaiterHandle RegisterCallback(uint threshold, Action callback)
         {
             lock (_waiters)
             {
                 if (Value >= threshold)
                 {
-                    callback(null);
+                    callback();
 
                     return null;
                 }
@@ -111,13 +111,13 @@ namespace Ryujinx.Graphics.Gpu.Synchronization
             // we can't call it inside the lock.
             if (expired != null)
             {
-                expired.Callback(expired);
+                expired.Callback();
 
                 if (expiredList != null)
                 {
                     for (int i = 0; i < expiredList.Count; i++)
                     {
-                        expiredList[i].Callback(expiredList[i]);
+                        expiredList[i].Callback();
                     }
                 }
             }

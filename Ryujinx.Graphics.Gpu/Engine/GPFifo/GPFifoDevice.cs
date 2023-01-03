@@ -1,5 +1,4 @@
-﻿using Ryujinx.Graphics.Gpu.Memory;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -27,11 +26,6 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         private struct CommandBuffer
         {
             /// <summary>
-            /// Processor used to process the command buffer. Contains channel state.
-            /// </summary>
-            public GPFifoProcessor Processor;
-
-            /// <summary>
             /// The type of the command buffer.
             /// </summary>
             public CommandBufferType Type;
@@ -52,48 +46,27 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
             public uint EntryCount;
 
             /// <summary>
-            /// Get the entries for the command buffer from memory.
-            /// </summary>
-            /// <param name="memoryManager">The memory manager used to fetch the data</param>
-            /// <param name="flush">If true, flushes potential GPU written data before reading the command buffer</param>
-            /// <returns>The fetched data</returns>
-            private ReadOnlySpan<int> GetWords(MemoryManager memoryManager, bool flush)
-            {
-                return MemoryMarshal.Cast<byte, int>(memoryManager.GetSpan(EntryAddress, (int)EntryCount * 4, flush));
-            }
-
-            /// <summary>
-            /// Prefetch the command buffer.
-            /// </summary>
-            /// <param name="memoryManager">The memory manager used to fetch the data</param>
-            public void Prefetch(MemoryManager memoryManager)
-            {
-                Words = GetWords(memoryManager, true).ToArray();
-            }
-
-            /// <summary>
             /// Fetch the command buffer.
             /// </summary>
-            /// <param name="memoryManager">The memory manager used to fetch the data</param>
-            /// <param name="flush">If true, flushes potential GPU written data before reading the command buffer</param>
-            /// <returns>The command buffer words</returns>
-            public ReadOnlySpan<int> Fetch(MemoryManager memoryManager, bool flush)
+            public void Fetch(GpuContext context)
             {
-                return Words ?? GetWords(memoryManager, flush);
+                if (Words == null)
+                {
+                    Words = MemoryMarshal.Cast<byte, int>(context.MemoryManager.GetSpan(EntryAddress, (int)EntryCount * 4, true)).ToArray();
+                }
             }
         }
 
         private readonly ConcurrentQueue<CommandBuffer> _commandBufferQueue;
 
         private CommandBuffer _currentCommandBuffer;
-        private GPFifoProcessor _prevChannelProcessor;
 
         private readonly bool _ibEnable;
         private readonly GpuContext _context;
         private readonly AutoResetEvent _event;
+        private readonly GPFifoProcessor _processor;
 
         private bool _interrupt;
-        private int _flushSkips;
 
         /// <summary>
         /// Creates a new instance of the GPU General Purpose FIFO device.
@@ -105,6 +78,8 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
             _ibEnable = true;
             _context = context;
             _event = new AutoResetEvent(false);
+
+            _processor = new GPFifoProcessor(context);
         }
 
         /// <summary>
@@ -119,13 +94,11 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// Push a GPFIFO entry in the form of a prefetched command buffer.
         /// It is intended to be used by nvservices to handle special cases.
         /// </summary>
-        /// <param name="processor">Processor used to process <paramref name="commandBuffer"/></param>
         /// <param name="commandBuffer">The command buffer containing the prefetched commands</param>
-        internal void PushHostCommandBuffer(GPFifoProcessor processor, int[] commandBuffer)
+        public void PushHostCommandBuffer(int[] commandBuffer)
         {
             _commandBufferQueue.Enqueue(new CommandBuffer
             {
-                Processor = processor,
                 Type = CommandBufferType.Prefetch,
                 Words = commandBuffer,
                 EntryAddress = ulong.MaxValue,
@@ -136,10 +109,9 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <summary>
         /// Create a CommandBuffer from a GPFIFO entry.
         /// </summary>
-        /// <param name="processor">Processor used to process the command buffer pointed to by <paramref name="entry"/></param>
         /// <param name="entry">The GPFIFO entry</param>
         /// <returns>A new CommandBuffer based on the GPFIFO entry</returns>
-        private static CommandBuffer CreateCommandBuffer(GPFifoProcessor processor, GPEntry entry)
+        private CommandBuffer CreateCommandBuffer(GPEntry entry)
         {
             CommandBufferType type = CommandBufferType.Prefetch;
 
@@ -152,7 +124,6 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
 
             return new CommandBuffer
             {
-                Processor = processor,
                 Type = type,
                 Words = null,
                 EntryAddress = startAddress,
@@ -163,9 +134,8 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <summary>
         /// Pushes GPFIFO entries.
         /// </summary>
-        /// <param name="processor">Processor used to process the command buffers pointed to by <paramref name="entries"/></param>
         /// <param name="entries">GPFIFO entries</param>
-        internal void PushEntries(GPFifoProcessor processor, ReadOnlySpan<ulong> entries)
+        public void PushEntries(ReadOnlySpan<ulong> entries)
         {
             bool beforeBarrier = true;
 
@@ -173,11 +143,11 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
             {
                 ulong entry = entries[index];
 
-                CommandBuffer commandBuffer = CreateCommandBuffer(processor, Unsafe.As<ulong, GPEntry>(ref entry));
+                CommandBuffer commandBuffer = CreateCommandBuffer(Unsafe.As<ulong, GPEntry>(ref entry));
 
                 if (beforeBarrier && commandBuffer.Type == CommandBufferType.Prefetch)
                 {
-                    commandBuffer.Prefetch(processor.MemoryManager);
+                    commandBuffer.Fetch(_context);
                 }
 
                 if (commandBuffer.Type == CommandBufferType.NoPrefetch)
@@ -203,47 +173,15 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// </summary>
         public void DispatchCalls()
         {
-            // Use this opportunity to also dispose any pending channels that were closed.
-            _context.RunDeferredActions();
-
-            // Process command buffers.
             while (_ibEnable && !_interrupt && _commandBufferQueue.TryDequeue(out CommandBuffer entry))
             {
-                bool flushCommandBuffer = true;
-
-                if (_flushSkips != 0)
-                {
-                    _flushSkips--;
-                    flushCommandBuffer = false;
-                }
-
                 _currentCommandBuffer = entry;
-                ReadOnlySpan<int> words = entry.Fetch(entry.Processor.MemoryManager, flushCommandBuffer);
+                _currentCommandBuffer.Fetch(_context);
 
-                // If we are changing the current channel,
-                // we need to force all the host state to be updated.
-                if (_prevChannelProcessor != entry.Processor)
-                {
-                    _prevChannelProcessor = entry.Processor;
-                    entry.Processor.ForceAllDirty();
-                }
-
-                entry.Processor.Process(entry.EntryAddress, words);
+                _processor.Process(_currentCommandBuffer.Words);
             }
 
             _interrupt = false;
-        }
-
-        /// <summary>
-        /// Sets the number of flushes that should be skipped for subsequent command buffers.
-        /// </summary>
-        /// <remarks>
-        /// This can improve performance when command buffer data only needs to be consumed by the GPU.
-        /// </remarks>
-        /// <param name="count">The amount of flushes that should be skipped</param>
-        internal void SetFlushSkips(int count)
-        {
-            _flushSkips = count;
         }
 
         /// <summary>

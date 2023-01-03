@@ -114,7 +114,7 @@ namespace Ryujinx.Graphics.Shader.Translation
             }
         }
 
-        public readonly struct FunctionRegisterUsage
+        public struct FunctionRegisterUsage
         {
             public Register[] InArguments { get; }
             public Register[] OutArguments { get; }

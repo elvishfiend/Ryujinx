@@ -20,16 +20,20 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         private const int RegistersCount = 16;
 
         private HashSet<int> _blockEdges;
+
         private LiveRange[] _blockRanges;
+
         private BitMap[] _blockLiveIn;
 
         private List<LiveInterval> _intervals;
+
         private LiveInterval[] _parentIntervals;
 
-        private List<(IntrusiveList<Operation>, Operation)> _operationNodes;
+        private List<(IntrusiveList<Node>, Node)> _operationNodes;
+
         private int _operationsCount;
 
-        private class AllocationContext
+        private class AllocationContext : IDisposable
         {
             public RegisterMasks Masks { get; }
 
@@ -41,55 +45,15 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             public int IntUsedRegisters { get; set; }
             public int VecUsedRegisters { get; set; }
 
-            private readonly int[] _intFreePositions;
-            private readonly int[] _vecFreePositions;
-            private readonly int _intFreePositionsCount;
-            private readonly int _vecFreePositionsCount;
-
             public AllocationContext(StackAllocator stackAlloc, RegisterMasks masks, int intervalsCount)
             {
                 StackAlloc = stackAlloc;
                 Masks      = masks;
 
-                Active   = new BitMap(Allocators.Default, intervalsCount);
-                Inactive = new BitMap(Allocators.Default, intervalsCount);
+                BitMapPool.PrepareBitMapPool();
 
-                PopulateFreePositions(RegisterType.Integer, out _intFreePositions, out _intFreePositionsCount);
-                PopulateFreePositions(RegisterType.Vector, out _vecFreePositions, out _vecFreePositionsCount);
-
-                void PopulateFreePositions(RegisterType type, out int[] positions, out int count)
-                {
-                    positions = new int[RegistersCount];
-                    count = BitOperations.PopCount((uint)masks.GetAvailableRegisters(type));
-
-                    int mask = masks.GetAvailableRegisters(type);
-
-                    for (int i = 0; i < positions.Length; i++)
-                    {
-                        if ((mask & (1 << i)) != 0)
-                        {
-                            positions[i] = int.MaxValue;
-                        }
-                    }
-                }
-            }
-
-            public void GetFreePositions(RegisterType type, in Span<int> positions, out int count)
-            {
-                if (type == RegisterType.Integer)
-                {
-                    _intFreePositions.CopyTo(positions);
-
-                    count = _intFreePositionsCount;
-                }
-                else
-                {
-                    Debug.Assert(type == RegisterType.Vector);
-
-                    _vecFreePositions.CopyTo(positions);
-
-                    count = _vecFreePositionsCount;
-                }
+                Active   = BitMapPool.Allocate(intervalsCount);
+                Inactive = BitMapPool.Allocate(intervalsCount);
             }
 
             public void MoveActiveToInactive(int bit)
@@ -108,6 +72,11 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
 
                 dest.Set(bit);
             }
+
+            public void Dispose()
+            {
+                BitMapPool.ResetBitMapPool();
+            }
         }
 
         public AllocationResult RunPass(
@@ -117,7 +86,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         {
             NumberLocals(cfg);
 
-            var context = new AllocationContext(stackAlloc, regMasks, _intervals.Count);
+            using AllocationContext context = new AllocationContext(stackAlloc, regMasks, _intervals.Count);
 
             BuildIntervals(cfg, context);
 
@@ -170,8 +139,6 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             {
                 LiveInterval interval = _intervals[iIndex];
 
-                interval.Forward(current.GetStart());
-
                 if (interval.GetEnd() < current.GetStart())
                 {
                     context.Active.Clear(iIndex);
@@ -186,8 +153,6 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             foreach (int iIndex in context.Inactive)
             {
                 LiveInterval interval = _intervals[iIndex];
-
-                interval.Forward(current.GetStart());
 
                 if (interval.GetEnd() < current.GetStart())
                 {
@@ -209,48 +174,45 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         {
             RegisterType regType = current.Local.Type.ToRegisterType();
 
-            Span<int> freePositions = stackalloc int[RegistersCount];
+            int availableRegisters = context.Masks.GetAvailableRegisters(regType);
 
-            context.GetFreePositions(regType, freePositions, out int freePositionsCount);
+            int[] freePositions = new int[RegistersCount];
+
+            for (int index = 0; index < RegistersCount; index++)
+            {
+                if ((availableRegisters & (1 << index)) != 0)
+                {
+                    freePositions[index] = int.MaxValue;
+                }
+            }
 
             foreach (int iIndex in context.Active)
             {
                 LiveInterval interval = _intervals[iIndex];
-                Register reg = interval.Register;
 
-                if (reg.Type == regType)
+                if (interval.Register.Type == regType)
                 {
-                    freePositions[reg.Index] = 0;
-                    freePositionsCount--;
+                    freePositions[interval.Register.Index] = 0;
                 }
-            }
-
-            // If all registers are already active, return early. No point in inspecting the inactive set to look for
-            // holes.
-            if (freePositionsCount == 0)
-            {
-                return false;
             }
 
             foreach (int iIndex in context.Inactive)
             {
                 LiveInterval interval = _intervals[iIndex];
-                Register reg = interval.Register;
 
-                ref int freePosition = ref freePositions[reg.Index];
-
-                if (reg.Type == regType && freePosition != 0)
+                if (interval.Register.Type == regType)
                 {
                     int overlapPosition = interval.GetOverlapPosition(current);
 
-                    if (overlapPosition != LiveInterval.NotFound && freePosition > overlapPosition)
+                    if (overlapPosition != LiveInterval.NotFound && freePositions[interval.Register.Index] > overlapPosition)
                     {
-                        freePosition = overlapPosition;
+                        freePositions[interval.Register.Index] = overlapPosition;
                     }
                 }
             }
 
             int selectedReg = GetHighestValueIndex(freePositions);
+
             int selectedNextUse = freePositions[selectedReg];
 
             // Intervals starts and ends at odd positions, unless they span an entire
@@ -272,6 +234,8 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             }
             else if (selectedNextUse < current.GetEnd())
             {
+                Debug.Assert(selectedNextUse > current.GetStart(), "Trying to split interval at the start.");
+
                 LiveInterval splitChild = current.Split(selectedNextUse);
 
                 if (splitChild.UsesCount != 0)
@@ -306,35 +270,44 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         {
             RegisterType regType = current.Local.Type.ToRegisterType();
 
-            Span<int> usePositions = stackalloc int[RegistersCount];
-            Span<int> blockedPositions = stackalloc int[RegistersCount];
+            int availableRegisters = context.Masks.GetAvailableRegisters(regType);
 
-            context.GetFreePositions(regType, usePositions, out _);
-            context.GetFreePositions(regType, blockedPositions, out _);
+            int[] usePositions     = new int[RegistersCount];
+            int[] blockedPositions = new int[RegistersCount];
+
+            for (int index = 0; index < RegistersCount; index++)
+            {
+                if ((availableRegisters & (1 << index)) != 0)
+                {
+                    usePositions[index] = int.MaxValue;
+
+                    blockedPositions[index] = int.MaxValue;
+                }
+            }
+
+            void SetUsePosition(int index, int position)
+            {
+                usePositions[index] = Math.Min(usePositions[index], position);
+            }
+
+            void SetBlockedPosition(int index, int position)
+            {
+                blockedPositions[index] = Math.Min(blockedPositions[index], position);
+
+                SetUsePosition(index, position);
+            }
 
             foreach (int iIndex in context.Active)
             {
                 LiveInterval interval = _intervals[iIndex];
-                Register reg = interval.Register;
 
-                if (reg.Type == regType)
+                if (!interval.IsFixed && interval.Register.Type == regType)
                 {
-                    ref int usePosition = ref usePositions[reg.Index];
-                    ref int blockedPosition = ref blockedPositions[reg.Index];
+                    int nextUse = interval.NextUseAfter(current.GetStart());
 
-                    if (interval.IsFixed)
+                    if (nextUse != -1)
                     {
-                        usePosition = 0;
-                        blockedPosition = 0;
-                    }
-                    else
-                    {
-                        int nextUse = interval.NextUseAfter(current.GetStart());
-
-                        if (nextUse != LiveInterval.NotFound && usePosition > nextUse)
-                        {
-                            usePosition = nextUse;
-                        }
+                        SetUsePosition(interval.Register.Index, nextUse);
                     }
                 }
             }
@@ -342,36 +315,45 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             foreach (int iIndex in context.Inactive)
             {
                 LiveInterval interval = _intervals[iIndex];
-                Register reg = interval.Register;
 
-                if (reg.Type == regType)
+                if (!interval.IsFixed && interval.Register.Type == regType && interval.Overlaps(current))
                 {
-                    ref int usePosition = ref usePositions[reg.Index];
-                    ref int blockedPosition = ref blockedPositions[reg.Index];
+                    int nextUse = interval.NextUseAfter(current.GetStart());
 
-                    if (interval.IsFixed)
+                    if (nextUse != -1)
                     {
-                        int overlapPosition = interval.GetOverlapPosition(current);
-
-                        if (overlapPosition != LiveInterval.NotFound)
-                        {
-                            blockedPosition = Math.Min(blockedPosition, overlapPosition);
-                            usePosition = Math.Min(usePosition, overlapPosition);
-                        }
+                        SetUsePosition(interval.Register.Index, nextUse);
                     }
-                    else if (interval.Overlaps(current))
-                    {
-                        int nextUse = interval.NextUseAfter(current.GetStart());
+                }
+            }
 
-                        if (nextUse != LiveInterval.NotFound && usePosition > nextUse)
-                        {
-                            usePosition = nextUse;
-                        }
+            foreach (int iIndex in context.Active)
+            {
+                LiveInterval interval = _intervals[iIndex];
+
+                if (interval.IsFixed && interval.Register.Type == regType)
+                {
+                    SetBlockedPosition(interval.Register.Index, 0);
+                }
+            }
+
+            foreach (int iIndex in context.Inactive)
+            {
+                LiveInterval interval = _intervals[iIndex];
+
+                if (interval.IsFixed && interval.Register.Type == regType)
+                {
+                    int overlapPosition = interval.GetOverlapPosition(current);
+
+                    if (overlapPosition != LiveInterval.NotFound)
+                    {
+                        SetBlockedPosition(interval.Register.Index, overlapPosition);
                     }
                 }
             }
 
             int selectedReg = GetHighestValueIndex(usePositions);
+
             int currentFirstUse = current.FirstUse();
 
             Debug.Assert(currentFirstUse >= 0, "Current interval has no uses.");
@@ -430,24 +412,24 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             }
         }
 
-        private static int GetHighestValueIndex(Span<int> span)
+        private static int GetHighestValueIndex(int[] array)
         {
-            int highest = span[0];
+            int higuest = array[0];
 
-            if (highest == int.MaxValue)
+            if (higuest == int.MaxValue)
             {
                 return 0;
             }
 
             int selected = 0;
 
-            for (int index = 1; index < span.Length; index++)
+            for (int index = 1; index < array.Length; index++)
             {
-                int current = span[index];
+                int current = array[index];
 
-                if (highest < current)
+                if (higuest < current)
                 {
-                    highest  = current;
+                    higuest  = current;
                     selected = index;
 
                     if (current == int.MaxValue)
@@ -568,21 +550,21 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
 
             CopyResolver GetCopyResolver(int position)
             {
-                if (!copyResolvers.TryGetValue(position, out CopyResolver copyResolver))
-                {
-                    copyResolver = new CopyResolver();
+                CopyResolver copyResolver = new CopyResolver();
 
-                    copyResolvers.Add(position, copyResolver);
+                if (copyResolvers.TryAdd(position, copyResolver))
+                {
+                    return copyResolver;
                 }
 
-                return copyResolver;
+                return copyResolvers[position];
             }
 
             foreach (LiveInterval interval in _intervals.Where(x => x.IsSplit))
             {
                 LiveInterval previous = interval;
 
-                foreach (LiveInterval splitChild in interval.SplitChildren())
+                foreach (LiveInterval splitChild in interval.SplitChilds())
                 {
                     int splitPosition = splitChild.GetStart();
 
@@ -606,7 +588,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
 
                 int splitPosition = kv.Key;
 
-                (IntrusiveList<Operation> nodes, Operation node) = GetOperationNode(splitPosition);
+                (IntrusiveList<Node> nodes, Node node) = GetOperationNode(splitPosition);
 
                 Operation[] sequence = copyResolver.Sequence();
 
@@ -632,12 +614,6 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                 return block.Index >= blocksCount;
             }
 
-            // Reset iterators to beginning because GetSplitChild depends on the state of the iterator.
-            foreach (LiveInterval interval in _intervals)
-            {
-                interval.Reset();
-            }
-
             for (BasicBlock block = cfg.Blocks.First; block != null; block = block.ListNext)
             {
                 if (IsSplitEdgeBlock(block))
@@ -645,9 +621,9 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                     continue;
                 }
 
-                bool hasSingleOrNoSuccessor = block.SuccessorsCount <= 1;
+                bool hasSingleOrNoSuccessor = block.SuccessorCount <= 1;
 
-                for (int i = 0; i < block.SuccessorsCount; i++)
+                for (int i = 0; i < block.SuccessorCount; i++)
                 {
                     BasicBlock successor = block.GetSuccessor(i);
 
@@ -660,7 +636,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                         succIndex = successor.GetSuccessor(0).Index;
                     }
 
-                    CopyResolver copyResolver = null;
+                    CopyResolver copyResolver = new CopyResolver();
 
                     foreach (int iIndex in _blockLiveIn[succIndex])
                     {
@@ -677,18 +653,13 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                         LiveInterval left  = interval.GetSplitChild(lEnd);
                         LiveInterval right = interval.GetSplitChild(rStart);
 
-                        if (left != default && right != default && left != right)
+                        if (left != null && right != null && left != right)
                         {
-                            if (copyResolver == null)
-                            {
-                                copyResolver = new CopyResolver();
-                            }
-
                             copyResolver.AddSplit(left, right);
                         }
                     }
 
-                    if (copyResolver == null || !copyResolver.HasCopy)
+                    if (!copyResolver.HasCopy)
                     {
                         continue;
                     }
@@ -706,7 +677,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                     {
                         successor.Operations.AddFirst(sequence[0]);
 
-                        Operation prependNode = sequence[0];
+                        Node prependNode = sequence[0];
 
                         for (int index = 1; index < sequence.Length; index++)
                         {
@@ -735,9 +706,11 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         {
             Operand register = GetRegister(current);
 
-            foreach (int usePosition in current.UsePositions())
+            IList<int> usePositions = current.UsePositions();
+            for (int i = usePositions.Count - 1; i >= 0; i--)
             {
-                (_, Operation operation) = GetOperationNode(usePosition);
+                int usePosition = -usePositions[i];
+                (_, Node operation) = GetOperationNode(usePosition);
 
                 for (int index = 0; index < operation.SourcesCount; index++)
                 {
@@ -749,7 +722,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                     }
                     else if (source.Kind == OperandKind.Memory)
                     {
-                        MemoryOperand memOp = source.GetMemory();
+                        MemoryOperand memOp = (MemoryOperand)source;
 
                         if (memOp.BaseAddress == current.Local)
                         {
@@ -779,20 +752,21 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         {
             Debug.Assert(!interval.IsSpilled, "Spilled intervals are not allowed.");
 
-            return Operand.Factory.Register(
+            return OperandHelper.Register(
                 interval.Register.Index,
                 interval.Register.Type,
                 interval.Local.Type);
         }
 
-        private (IntrusiveList<Operation>, Operation) GetOperationNode(int position)
+        private (IntrusiveList<Node>, Node) GetOperationNode(int position)
         {
             return _operationNodes[position / InstructionGap];
         }
 
         private void NumberLocals(ControlFlowGraph cfg)
         {
-            _operationNodes = new List<(IntrusiveList<Operation>, Operation)>();
+            _operationNodes = new List<(IntrusiveList<Node>, Node)>();
+
             _intervals = new List<LiveInterval>();
 
             for (int index = 0; index < RegistersCount; index++)
@@ -801,18 +775,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                 _intervals.Add(new LiveInterval(new Register(index, RegisterType.Vector)));
             }
 
-            // The "visited" state is stored in the MSB of the local's value.
-            const ulong VisitedMask = 1ul << 63;
-
-            bool IsVisited(Operand local)
-            {
-                return (local.GetValueUnsafe() & VisitedMask) != 0;
-            }
-
-            void SetVisited(Operand local)
-            {
-                local.GetValueUnsafe() |= VisitedMask;
-            }
+            HashSet<Operand> visited = new HashSet<Operand>();
 
             _operationsCount = 0;
 
@@ -820,21 +783,18 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             {
                 BasicBlock block = cfg.PostOrderBlocks[index];
 
-                for (Operation node = block.Operations.First; node != default; node = node.ListNext)
+                for (Node node = block.Operations.First; node != null; node = node.ListNext)
                 {
                     _operationNodes.Add((block.Operations, node));
 
                     for (int i = 0; i < node.DestinationsCount; i++)
                     {
                         Operand dest = node.GetDestination(i);
-
-                        if (dest.Kind == OperandKind.LocalVariable && !IsVisited(dest))
+                        if (dest.Kind == OperandKind.LocalVariable && visited.Add(dest))
                         {
                             dest.NumberLocal(_intervals.Count);
 
                             _intervals.Add(new LiveInterval(dest));
-
-                            SetVisited(dest);
                         }
                     }
                 }
@@ -844,7 +804,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                 if (block.Operations.Count == 0)
                 {
                     // Pretend we have a dummy instruction on the empty block.
-                    _operationNodes.Add((default, default));
+                    _operationNodes.Add((null, null));
 
                     _operationsCount += InstructionGap;
                 }
@@ -865,50 +825,24 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             // Compute local live sets.
             for (BasicBlock block = cfg.Blocks.First; block != null; block = block.ListNext)
             {
-                BitMap liveGen  = new BitMap(Allocators.Default, mapSize);
-                BitMap liveKill = new BitMap(Allocators.Default, mapSize);
+                BitMap liveGen  = BitMapPool.Allocate(mapSize);
+                BitMap liveKill = BitMapPool.Allocate(mapSize);
 
-                for (Operation node = block.Operations.First; node != default; node = node.ListNext)
+                for (Node node = block.Operations.First; node != null; node = node.ListNext)
                 {
-                    for (int i = 0; i < node.SourcesCount; i++)
+                    Sources(node, (source) =>
                     {
-                        VisitSource(node.GetSource(i));
-                    }
+                        int id = GetOperandId(source);
+
+                        if (!liveKill.IsSet(id))
+                        {
+                            liveGen.Set(id);
+                        }
+                    });
 
                     for (int i = 0; i < node.DestinationsCount; i++)
                     {
-                        VisitDestination(node.GetDestination(i));
-                    }
-
-                    void VisitSource(Operand source)
-                    {
-                        if (IsLocalOrRegister(source.Kind))
-                        {
-                            int id = GetOperandId(source);
-
-                            if (!liveKill.IsSet(id))
-                            {
-                                liveGen.Set(id);
-                            }
-                        }
-                        else if (source.Kind == OperandKind.Memory)
-                        {
-                            MemoryOperand memOp = source.GetMemory();
-
-                            if (memOp.BaseAddress != default)
-                            {
-                                VisitSource(memOp.BaseAddress);
-                            }
-
-                            if (memOp.Index != default)
-                            {
-                                VisitSource(memOp.Index);
-                            }
-                        }
-                    }
-
-                    void VisitDestination(Operand dest)
-                    {
+                        Operand dest = node.GetDestination(i);
                         liveKill.Set(GetOperandId(dest));
                     }
                 }
@@ -923,8 +857,8 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
 
             for (int index = 0; index < cfg.Blocks.Count; index++)
             {
-                blkLiveIn [index] = new BitMap(Allocators.Default, mapSize);
-                blkLiveOut[index] = new BitMap(Allocators.Default, mapSize);
+                blkLiveIn [index] = BitMapPool.Allocate(mapSize);
+                blkLiveOut[index] = BitMapPool.Allocate(mapSize);
             }
 
             bool modified;
@@ -939,7 +873,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
 
                     BitMap liveOut = blkLiveOut[block.Index];
 
-                    for (int i = 0; i < block.SuccessorsCount; i++)
+                    for (int i = 0; i < block.SuccessorCount; i++)
                     {
                         BasicBlock succ = block.GetSuccessor(i);
 
@@ -992,64 +926,33 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                     continue;
                 }
 
-                for (Operation node = block.Operations.Last; node != default; node = node.ListPrevious)
+                foreach (Node node in BottomOperations(block))
                 {
                     operationPos -= InstructionGap;
 
                     for (int i = 0; i < node.DestinationsCount; i++)
                     {
-                        VisitDestination(node.GetDestination(i));
-                    }
-
-                    for (int i = 0; i < node.SourcesCount; i++)
-                    {
-                        VisitSource(node.GetSource(i));
-                    }
-
-                    if (node.Instruction == Instruction.Call)
-                    {
-                        AddIntervalCallerSavedReg(context.Masks.IntCallerSavedRegisters, operationPos, RegisterType.Integer);
-                        AddIntervalCallerSavedReg(context.Masks.VecCallerSavedRegisters, operationPos, RegisterType.Vector);
-                    }
-
-                    void VisitSource(Operand source)
-                    {
-                        if (IsLocalOrRegister(source.Kind))
-                        {
-                            LiveInterval interval = _intervals[GetOperandId(source)];
-
-                            interval.AddRange(blockStart, operationPos + 1);
-                            interval.AddUsePosition(operationPos);
-                        }
-                        else if (source.Kind == OperandKind.Memory)
-                        {
-                            MemoryOperand memOp = source.GetMemory();
-
-                            if (memOp.BaseAddress != default)
-                            {
-                                VisitSource(memOp.BaseAddress);
-                            }
-
-                            if (memOp.Index != default)
-                            {
-                                VisitSource(memOp.Index);
-                            }
-                        }
-                    }
-
-                    void VisitDestination(Operand dest)
-                    {
+                        Operand dest = node.GetDestination(i);
                         LiveInterval interval = _intervals[GetOperandId(dest)];
 
                         interval.SetStart(operationPos + 1);
                         interval.AddUsePosition(operationPos + 1);
                     }
-                }
-            }
 
-            foreach (LiveInterval interval in _parentIntervals)
-            {
-                interval.Reset();
+                    Sources(node, (source) =>
+                    {
+                        LiveInterval interval = _intervals[GetOperandId(source)];
+
+                        interval.AddRange(blockStart, operationPos + 1);
+                        interval.AddUsePosition(operationPos);
+                    });
+
+                    if (node is Operation operation && operation.Instruction == Instruction.Call)
+                    {
+                        AddIntervalCallerSavedReg(context.Masks.IntCallerSavedRegisters, operationPos, RegisterType.Integer);
+                        AddIntervalCallerSavedReg(context.Masks.VecCallerSavedRegisters, operationPos, RegisterType.Vector);
+                    }
+                }
             }
         }
 
@@ -1073,7 +976,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         {
             if (operand.Kind == OperandKind.LocalVariable)
             {
-                return operand.GetLocalNumber();
+                return operand.AsInt32();
             }
             else if (operand.Kind == OperandKind.Register)
             {
@@ -1088,6 +991,45 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         private static int GetRegisterId(Register register)
         {
             return (register.Index << 1) | (register.Type == RegisterType.Vector ? 1 : 0);
+        }
+
+        private static IEnumerable<Node> BottomOperations(BasicBlock block)
+        {
+            Node node = block.Operations.Last;
+
+            while (node != null && !(node is PhiNode))
+            {
+                yield return node;
+
+                node = node.ListPrevious;
+            }
+        }
+
+        private static void Sources(Node node, Action<Operand> action)
+        {
+            for (int index = 0; index < node.SourcesCount; index++)
+            {
+                Operand source = node.GetSource(index);
+
+                if (IsLocalOrRegister(source.Kind))
+                {
+                    action(source);
+                }
+                else if (source.Kind == OperandKind.Memory)
+                {
+                    MemoryOperand memOp = (MemoryOperand)source;
+
+                    if (memOp.BaseAddress != null)
+                    {
+                        action(memOp.BaseAddress);
+                    }
+
+                    if (memOp.Index != null)
+                    {
+                        action(memOp.Index);
+                    }
+                }
+            }
         }
 
         private static bool IsLocalOrRegister(OperandKind kind)

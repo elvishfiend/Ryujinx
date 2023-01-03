@@ -10,33 +10,25 @@ namespace ARMeilleure.Translation
         private BasicBlock[] _postOrderBlocks;
         private int[] _postOrderMap;
 
-        public int LocalsCount { get; private set; }
         public BasicBlock Entry { get; }
         public IntrusiveList<BasicBlock> Blocks { get; }
         public BasicBlock[] PostOrderBlocks => _postOrderBlocks;
-        public int[] PostOrderMap => _postOrderMap;
+        public int[] PostOrderMap => _postOrderMap; 
 
-        public ControlFlowGraph(BasicBlock entry, IntrusiveList<BasicBlock> blocks, int localsCount)
+        public ControlFlowGraph(BasicBlock entry, IntrusiveList<BasicBlock> blocks)
         {
             Entry = entry;
             Blocks = blocks;
-            LocalsCount = localsCount;
 
-            Update();
+            Update(removeUnreachableBlocks: true);
         }
 
-        public Operand AllocateLocal(OperandType type)
+        public void Update(bool removeUnreachableBlocks)
         {
-            Operand result = Operand.Factory.Local(type);
-
-            result.NumberLocal(++LocalsCount);
-
-            return result;
-        }
-
-        public void Update()
-        {
-            RemoveUnreachableBlocks(Blocks);
+            if (removeUnreachableBlocks)
+            {
+                RemoveUnreachableBlocks(Blocks);
+            }
 
             var visited = new HashSet<BasicBlock>();
             var blockStack = new Stack<BasicBlock>();
@@ -53,7 +45,7 @@ namespace ARMeilleure.Translation
             {
                 bool visitedNew = false;
 
-                for (int i = 0; i < block.SuccessorsCount; i++)
+                for (int i = 0; i < block.SuccessorCount; i++)
                 {
                     BasicBlock succ = block.GetSuccessor(i);
 
@@ -89,7 +81,7 @@ namespace ARMeilleure.Translation
             {
                 Debug.Assert(block.Index != -1, "Invalid block index.");
 
-                for (int i = 0; i < block.SuccessorsCount; i++)
+                for (int i = 0; i < block.SuccessorCount; i++)
                 {
                     BasicBlock succ = block.GetSuccessor(i);
 
@@ -111,9 +103,9 @@ namespace ARMeilleure.Translation
 
                     if (!visited.Contains(block))
                     {
-                        while (block.SuccessorsCount > 0)
+                        while (block.SuccessorCount > 0)
                         {
-                            block.RemoveSuccessor(index: block.SuccessorsCount - 1);
+                            block.RemoveSuccessor(index: block.SuccessorCount - 1);
                         }
 
                         blocks.Remove(block);
@@ -132,7 +124,7 @@ namespace ARMeilleure.Translation
         {
             BasicBlock splitBlock = new BasicBlock(Blocks.Count);
 
-            for (int i = 0; i < predecessor.SuccessorsCount; i++)
+            for (int i = 0; i < predecessor.SuccessorCount; i++)
             {
                 if (predecessor.GetSuccessor(i) == successor)
                 {

@@ -1,6 +1,6 @@
 namespace Ryujinx.Graphics.GAL
 {
-    public readonly struct DepthTestDescriptor
+    public struct DepthTestDescriptor
     {
         public bool TestEnable  { get; }
         public bool WriteEnable { get; }

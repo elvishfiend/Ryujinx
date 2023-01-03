@@ -2,7 +2,7 @@ using ARMeilleure.IntermediateRepresentation;
 
 namespace ARMeilleure.Translation
 {
-    readonly struct CompilerContext
+    struct CompilerContext
     {
         public ControlFlowGraph Cfg { get; }
 

@@ -1,5 +1,6 @@
 ﻿using Ryujinx.Graphics.Device;
 using Ryujinx.Graphics.Gpu.Engine.MME;
+using Ryujinx.Graphics.Gpu.State;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -14,9 +15,6 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         private readonly GpuContext _context;
         private readonly GPFifoProcessor _parent;
         private readonly DeviceState<GPFifoClassState> _state;
-
-        private int _previousSubChannel;
-        private bool _createSyncPending;
 
         private const int MacrosCount = 0x80;
 
@@ -52,18 +50,6 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         }
 
         /// <summary>
-        /// Create any syncs from WaitForIdle command that are currently pending.
-        /// </summary>
-        public void CreatePendingSyncs()
-        {
-            if (_createSyncPending)
-            {
-                _createSyncPending = false;
-                _context.CreateHostSyncIfNeeded(false, false);
-            }
-        }
-
-        /// <summary>
         /// Reads data from the class registers.
         /// </summary>
         /// <param name="offset">Register byte offset</param>
@@ -90,22 +76,16 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
 
             SemaphoredOperation operation = _state.State.SemaphoredOperation;
 
-            if (_state.State.SemaphoredReleaseSize == SemaphoredReleaseSize.SixteenBytes)
-            {
-                _parent.MemoryManager.Write(address + 4, 0);
-                _parent.MemoryManager.Write(address + 8, _context.GetTimestamp());
-            }
-
             // TODO: Acquire operations (Wait), interrupts for invalid combinations.
             if (operation == SemaphoredOperation.Release)
             {
-                _parent.MemoryManager.Write(address, value);
+                _context.MemoryManager.Write(address, value);
             }
             else if (operation == SemaphoredOperation.Reduction)
             {
                 bool signed = _state.State.SemaphoredFormat == SemaphoredFormat.Signed;
 
-                int mem = _parent.MemoryManager.Read<int>(address);
+                int mem = _context.MemoryManager.Read<int>(address);
 
                 switch (_state.State.SemaphoredReduction)
                 {
@@ -135,7 +115,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
                         break;
                 }
 
-                _parent.MemoryManager.Write(address, value);
+                _context.MemoryManager.Write(address, value);
             }
         }
 
@@ -157,7 +137,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
             }
             else if (operation == SyncpointbOperation.Incr)
             {
-                _context.CreateHostSyncIfNeeded(true, true);
+                _context.CreateHostSyncIfNeeded();
                 _context.Synchronization.IncrementSyncpoint(syncpointId);
             }
 
@@ -170,10 +150,10 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <param name="argument">Method call argument</param>
         public void WaitForIdle(int argument)
         {
-            _parent.PerformDeferredDraws();
+            _context.Methods.PerformDeferredDraws();
             _context.Renderer.Pipeline.Barrier();
 
-            _createSyncPending = true;
+            _context.CreateHostSyncIfNeeded();
         }
 
         /// <summary>
@@ -182,9 +162,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <param name="argument">Method call argument</param>
         public void SetReference(int argument)
         {
-            _context.Renderer.Pipeline.CommandBufferBarrier();
-
-            _context.CreateHostSyncIfNeeded(false, true);
+            _context.CreateHostSyncIfNeeded();
         }
 
         /// <summary>
@@ -211,18 +189,17 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <param name="argument">Method call argument</param>
         public void SetMmeShadowRamControl(int argument)
         {
-            _parent.SetShadowRamControl(argument);
+            _parent.SetShadowRamControl((ShadowRamControl)argument);
         }
 
         /// <summary>
         /// Pushes an argument to a macro.
         /// </summary>
         /// <param name="index">Index of the macro</param>
-        /// <param name="gpuVa">GPU virtual address where the command word is located</param>
         /// <param name="argument">Argument to be pushed to the macro</param>
-        public void MmePushArgument(int index, ulong gpuVa, int argument)
+        public void MmePushArgument(int index, int argument)
         {
-            _macros[index].PushArgument(gpuVa, argument);
+            _macros[index].PushArgument(argument);
         }
 
         /// <summary>
@@ -232,7 +209,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <param name="argument">Initial argument passed to the macro</param>
         public void MmeStart(int index, int argument)
         {
-            _macros[index].StartExecution(_context, _parent, _macroCode, argument);
+            _macros[index].StartExecution(argument);
         }
 
         /// <summary>
@@ -240,7 +217,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// </summary>
         /// <param name="index">Index of the macro</param>
         /// <param name="state">Current GPU state</param>
-        public void CallMme(int index, IDeviceState state)
+        public void CallMme(int index, GpuState state)
         {
             _macros[index].Execute(_macroCode, state);
         }

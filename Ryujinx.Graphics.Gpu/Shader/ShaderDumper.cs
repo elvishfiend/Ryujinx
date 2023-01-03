@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 
 namespace Ryujinx.Graphics.Gpu.Shader
@@ -29,20 +30,24 @@ namespace Ryujinx.Graphics.Gpu.Shader
         /// </summary>
         /// <param name="code">Code to be dumped</param>
         /// <param name="compute">True for compute shader code, false for graphics shader code</param>
-        /// <returns>Paths where the shader code was dumped</returns>
-        public ShaderDumpPaths Dump(byte[] code, bool compute)
+        /// <param name="fullPath">Output path for the shader code with header included</param>
+        /// <param name="codePath">Output path for the shader code without header</param>
+        public void Dump(byte[] code, bool compute, out string fullPath, out string codePath)
         {
             _dumpPath = GraphicsConfig.ShadersDumpPath;
 
             if (string.IsNullOrWhiteSpace(_dumpPath))
             {
-                return default;
+                fullPath = null;
+                codePath = null;
+
+                return;
             }
 
             string fileName = "Shader" + CurrentDumpIndex.ToString("d4") + ".bin";
 
-            string fullPath = Path.Combine(FullDir(), fileName);
-            string codePath = Path.Combine(CodeDir(), fileName);
+            fullPath = Path.Combine(FullDir(), fileName);
+            codePath = Path.Combine(CodeDir(), fileName);
 
             CurrentDumpIndex++;
 
@@ -68,8 +73,6 @@ namespace Ryujinx.Graphics.Gpu.Shader
             {
                 codeWriter.Write(0);
             }
-
-            return new ShaderDumpPaths(fullPath, codePath);
         }
 
         /// <summary>

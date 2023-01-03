@@ -9,7 +9,7 @@ using System.Reflection;
 
 using static ARMeilleure.Instructions.InstEmitHelper;
 using static ARMeilleure.Instructions.InstEmitSimdHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -39,7 +39,7 @@ namespace ARMeilleure.Instructions
 
                 Operand dLow = context.VectorZeroUpper64(d);
 
-                Operand mask = default;
+                Operand mask = null;
 
                 switch (op.Size + 1)
                 {
@@ -88,35 +88,8 @@ namespace ARMeilleure.Instructions
             OpCodeSimdShImm op = (OpCodeSimdShImm)context.CurrOp;
 
             int shift = GetImmShl(op);
-            int eSize = 8 << op.Size;
 
-            if (shift >= eSize)
-            {
-                if ((op.RegisterSize == RegisterSize.Simd64))
-                {
-                    Operand res = context.VectorZeroUpper64(GetVec(op.Rd));
-
-                    context.Copy(GetVec(op.Rd), res);
-                }
-            }
-            else if (Optimizations.UseGfni && op.Size == 0)
-            {
-                Operand n = GetVec(op.Rn);
-
-                ulong bitMatrix = X86GetGf2p8LogicalShiftLeft(shift);
-
-                Operand vBitMatrix = X86GetElements(context, bitMatrix, bitMatrix);
-
-                Operand res = context.AddIntrinsic(Intrinsic.X86Gf2p8affineqb, n, vBitMatrix, Const(0));
-
-                if (op.RegisterSize == RegisterSize.Simd64)
-                {
-                    res = context.VectorZeroUpper64(res);
-                }
-
-                context.Copy(GetVec(op.Rd), res);
-            }
-            else if (Optimizations.UseSse2 && op.Size > 0)
+            if (Optimizations.UseSse2 && op.Size > 0)
             {
                 Operand n = GetVec(op.Rn);
 
@@ -215,7 +188,23 @@ namespace ARMeilleure.Instructions
 
         public static void Sqrshl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Signed | ShlRegFlags.Round | ShlRegFlags.Saturating);
+            OpCodeSimdReg op = (OpCodeSimdReg)context.CurrOp;
+
+            Operand res = context.VectorZero();
+
+            int elems = op.GetBytesCount() >> op.Size;
+
+            for (int index = 0; index < elems; index++)
+            {
+                Operand ne = EmitVectorExtractSx(context, op.Rn, index, op.Size);
+                Operand me = EmitVectorExtractSx(context, op.Rm, index, op.Size);
+
+                Operand e = context.Call(typeof(SoftFallback).GetMethod(nameof(SoftFallback.SignedShlRegSatQ)), ne, me, Const(1), Const(op.Size));
+
+                res = EmitVectorInsert(context, res, e, index, op.Size);
+            }
+
+            context.Copy(GetVec(op.Rd), res);
         }
 
         public static void Sqrshrn_S(ArmEmitterContext context)
@@ -240,7 +229,23 @@ namespace ARMeilleure.Instructions
 
         public static void Sqshl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Signed | ShlRegFlags.Saturating);
+            OpCodeSimdReg op = (OpCodeSimdReg)context.CurrOp;
+
+            Operand res = context.VectorZero();
+
+            int elems = op.GetBytesCount() >> op.Size;
+
+            for (int index = 0; index < elems; index++)
+            {
+                Operand ne = EmitVectorExtractSx(context, op.Rn, index, op.Size);
+                Operand me = EmitVectorExtractSx(context, op.Rm, index, op.Size);
+
+                Operand e = context.Call(typeof(SoftFallback).GetMethod(nameof(SoftFallback.SignedShlRegSatQ)), ne, me, Const(0), Const(op.Size));
+
+                res = EmitVectorInsert(context, res, e, index, op.Size);
+            }
+
+            context.Copy(GetVec(op.Rd), res);
         }
 
         public static void Sqshrn_S(ArmEmitterContext context)
@@ -275,7 +280,23 @@ namespace ARMeilleure.Instructions
 
         public static void Srshl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Signed | ShlRegFlags.Round);
+            OpCodeSimdReg op = (OpCodeSimdReg)context.CurrOp;
+
+            Operand res = context.VectorZero();
+
+            int elems = op.GetBytesCount() >> op.Size;
+
+            for (int index = 0; index < elems; index++)
+            {
+                Operand ne = EmitVectorExtractSx(context, op.Rn, index, op.Size);
+                Operand me = EmitVectorExtractSx(context, op.Rm, index, op.Size);
+
+                Operand e = context.Call(typeof(SoftFallback).GetMethod(nameof(SoftFallback.SignedShlReg)), ne, me, Const(1), Const(op.Size));
+
+                res = EmitVectorInsert(context, res, e, index, op.Size);
+            }
+
+            context.Copy(GetVec(op.Rd), res);
         }
 
         public static void Srshr_S(ArmEmitterContext context)
@@ -372,12 +393,12 @@ namespace ARMeilleure.Instructions
 
         public static void Sshl_S(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Scalar | ShlRegFlags.Signed);
+            EmitSshlOrUshl(context, signed: true, scalar: true);
         }
 
         public static void Sshl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Signed);
+            EmitSshlOrUshl(context, signed: true, scalar: false);
         }
 
         public static void Sshll_V(ArmEmitterContext context)
@@ -423,40 +444,10 @@ namespace ARMeilleure.Instructions
         {
             OpCodeSimdShImm op = (OpCodeSimdShImm)context.CurrOp;
 
-            int shift = GetImmShr(op);
-
-            if (Optimizations.UseGfni && op.Size == 0)
+            if (Optimizations.UseSse2 && op.Size > 0 && op.Size < 3)
             {
-                Operand n = GetVec(op.Rn);
+                int shift = GetImmShr(op);
 
-                ulong bitMatrix;
-
-                if (shift < 8)
-                {
-                    bitMatrix = X86GetGf2p8LogicalShiftLeft(-shift);
-
-                    // Extend sign-bit
-                    bitMatrix |= 0x8080808080808080UL >> (64 - shift * 8);
-                }
-                else
-                {
-                    // Replicate sign-bit into all bits
-                    bitMatrix = 0x8080808080808080UL;
-                }
-
-                Operand vBitMatrix = X86GetElements(context, bitMatrix, bitMatrix);
-
-                Operand res = context.AddIntrinsic(Intrinsic.X86Gf2p8affineqb, n, vBitMatrix, Const(0));
-
-                if (op.RegisterSize == RegisterSize.Simd64)
-                {
-                    res = context.VectorZeroUpper64(res);
-                }
-
-                context.Copy(GetVec(op.Rd), res);
-            }
-            else if (Optimizations.UseSse2 && op.Size > 0 && op.Size < 3)
-            {
                 Operand n = GetVec(op.Rn);
 
                 Intrinsic sraInst = X86PsraInstruction[op.Size];
@@ -515,7 +506,23 @@ namespace ARMeilleure.Instructions
 
         public static void Uqrshl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Round | ShlRegFlags.Saturating);
+            OpCodeSimdReg op = (OpCodeSimdReg)context.CurrOp;
+
+            Operand res = context.VectorZero();
+
+            int elems = op.GetBytesCount() >> op.Size;
+
+            for (int index = 0; index < elems; index++)
+            {
+                Operand ne = EmitVectorExtractZx(context, op.Rn, index, op.Size);
+                Operand me = EmitVectorExtractZx(context, op.Rm, index, op.Size);
+
+                Operand e = context.Call(typeof(SoftFallback).GetMethod(nameof(SoftFallback.UnsignedShlRegSatQ)), ne, me, Const(1), Const(op.Size));
+
+                res = EmitVectorInsert(context, res, e, index, op.Size);
+            }
+
+            context.Copy(GetVec(op.Rd), res);
         }
 
         public static void Uqrshrn_S(ArmEmitterContext context)
@@ -530,7 +537,23 @@ namespace ARMeilleure.Instructions
 
         public static void Uqshl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Saturating);
+            OpCodeSimdReg op = (OpCodeSimdReg)context.CurrOp;
+
+            Operand res = context.VectorZero();
+
+            int elems = op.GetBytesCount() >> op.Size;
+
+            for (int index = 0; index < elems; index++)
+            {
+                Operand ne = EmitVectorExtractZx(context, op.Rn, index, op.Size);
+                Operand me = EmitVectorExtractZx(context, op.Rm, index, op.Size);
+
+                Operand e = context.Call(typeof(SoftFallback).GetMethod(nameof(SoftFallback.UnsignedShlRegSatQ)), ne, me, Const(0), Const(op.Size));
+
+                res = EmitVectorInsert(context, res, e, index, op.Size);
+            }
+
+            context.Copy(GetVec(op.Rd), res);
         }
 
         public static void Uqshrn_S(ArmEmitterContext context)
@@ -545,7 +568,23 @@ namespace ARMeilleure.Instructions
 
         public static void Urshl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Round);
+            OpCodeSimdReg op = (OpCodeSimdReg)context.CurrOp;
+
+            Operand res = context.VectorZero();
+
+            int elems = op.GetBytesCount() >> op.Size;
+
+            for (int index = 0; index < elems; index++)
+            {
+                Operand ne = EmitVectorExtractZx(context, op.Rn, index, op.Size);
+                Operand me = EmitVectorExtractZx(context, op.Rm, index, op.Size);
+
+                Operand e = context.Call(typeof(SoftFallback).GetMethod(nameof(SoftFallback.UnsignedShlReg)), ne, me, Const(1), Const(op.Size));
+
+                res = EmitVectorInsert(context, res, e, index, op.Size);
+            }
+
+            context.Copy(GetVec(op.Rd), res);
         }
 
         public static void Urshr_S(ArmEmitterContext context)
@@ -638,12 +677,12 @@ namespace ARMeilleure.Instructions
 
         public static void Ushl_S(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.Scalar);
+            EmitSshlOrUshl(context, signed: false, scalar: true);
         }
 
         public static void Ushl_V(ArmEmitterContext context)
         {
-            EmitShlRegOp(context, ShlRegFlags.None);
+            EmitSshlOrUshl(context, signed: false, scalar: false);
         }
 
         public static void Ushll_V(ArmEmitterContext context)
@@ -833,6 +872,43 @@ namespace ARMeilleure.Instructions
             context.Copy(GetVec(op.Rd), res);
         }
 
+        private static Operand EmitShlRegOp(ArmEmitterContext context, Operand op, Operand shiftLsB, int size, bool signed)
+        {
+            Debug.Assert(op.Type       == OperandType.I64);
+            Debug.Assert(shiftLsB.Type == OperandType.I32);
+            Debug.Assert((uint)size < 4u);
+
+            Operand negShiftLsB = context.Negate(shiftLsB);
+
+            Operand isInRange = context.BitwiseAnd(
+                context.ICompareLess(shiftLsB,    Const(8 << size)),
+                context.ICompareLess(negShiftLsB, Const(8 << size)));
+
+            Operand isPositive = context.ICompareGreaterOrEqual(shiftLsB, Const(0));
+
+            Operand shl = context.ShiftLeft(op, shiftLsB);
+
+            Operand sarOrShr = signed
+                ? context.ShiftRightSI(op, negShiftLsB)
+                : context.ShiftRightUI(op, negShiftLsB);
+
+            Operand res = context.ConditionalSelect(isPositive, shl, sarOrShr);
+
+            if (signed)
+            {
+                Operand isPositive2 = context.ICompareGreaterOrEqual(op, Const(0L));
+
+                Operand res2 = context.ConditionalSelect(isPositive2, Const(0L), Const(-1L));
+                        res2 = context.ConditionalSelect(isPositive,  Const(0L), res2);
+
+                return context.ConditionalSelect(isInRange, res, res2);
+            }
+            else
+            {
+                return context.ConditionalSelect(isInRange, res, Const(0UL));
+            }
+        }
+
         private static void EmitVectorShrImmNarrowOpZx(ArmEmitterContext context, bool round)
         {
             OpCodeSimdShImm op = (OpCodeSimdShImm)context.CurrOp;
@@ -928,7 +1004,7 @@ namespace ARMeilleure.Instructions
                     e = EmitShrImm64(context, e, signedSrc, roundConst, shift); // shift <= 32
                 }
 
-                e = signedSrc ? EmitSignedSrcSatQ(context, e, op.Size, signedDst) : EmitUnsignedSrcSatQ(context, e, op.Size, signedDst);
+                e = EmitSatQ(context, e, op.Size, signedSrc, signedDst);
 
                 res = EmitVectorInsert(context, res, e, part + index, op.Size);
             }
@@ -986,44 +1062,10 @@ namespace ARMeilleure.Instructions
             OpCodeSimdShImm op = (OpCodeSimdShImm)context.CurrOp;
 
             int shift = GetImmShl(op);
-            int eSize = 8 << op.Size;
 
             ulong mask = shift != 0 ? ulong.MaxValue >> (64 - shift) : 0UL;
 
-            if (shift >= eSize)
-            {
-                if ((op.RegisterSize == RegisterSize.Simd64) || scalar)
-                {
-                    Operand res = context.VectorZeroUpper64(GetVec(op.Rd));
-
-                    context.Copy(GetVec(op.Rd), res);
-                }
-            }
-            else if (Optimizations.UseGfni && op.Size == 0)
-            {
-                Operand d = GetVec(op.Rd);
-                Operand n = GetVec(op.Rn);
-
-                ulong bitMatrix = X86GetGf2p8LogicalShiftLeft(shift);
-
-                Operand vBitMatrix = X86GetElements(context, bitMatrix, bitMatrix);
-
-                Operand nShifted = context.AddIntrinsic(Intrinsic.X86Gf2p8affineqb, n, vBitMatrix, Const(0));
-
-                Operand dMask = X86GetAllElements(context, (long)mask * _masks_SliSri[op.Size]);
-
-                Operand dMasked = context.AddIntrinsic(Intrinsic.X86Pand, d, dMask);
-
-                Operand res = context.AddIntrinsic(Intrinsic.X86Por, nShifted, dMasked);
-
-                if ((op.RegisterSize == RegisterSize.Simd64) || scalar)
-                {
-                    res = context.VectorZeroUpper64(res);
-                }
-
-                context.Copy(d, res);
-            }
-            else if (Optimizations.UseSse2 && op.Size > 0)
+            if (Optimizations.UseSse2 && op.Size > 0)
             {
                 Operand d = GetVec(op.Rd);
                 Operand n = GetVec(op.Rn);
@@ -1079,40 +1121,7 @@ namespace ARMeilleure.Instructions
 
             ulong mask = (ulong.MaxValue << (eSize - shift)) & (ulong.MaxValue >> (64 - eSize));
 
-            if (shift >= eSize)
-            {
-                if ((op.RegisterSize == RegisterSize.Simd64) || scalar)
-                {
-                    Operand res = context.VectorZeroUpper64(GetVec(op.Rd));
-
-                    context.Copy(GetVec(op.Rd), res);
-                }
-            }
-            else if (Optimizations.UseGfni && op.Size == 0)
-            {
-                Operand d = GetVec(op.Rd);
-                Operand n = GetVec(op.Rn);
-
-                ulong bitMatrix = X86GetGf2p8LogicalShiftLeft(-shift);
-
-                Operand vBitMatrix = X86GetElements(context, bitMatrix, bitMatrix);
-
-                Operand nShifted = context.AddIntrinsic(Intrinsic.X86Gf2p8affineqb, n, vBitMatrix, Const(0));
-
-                Operand dMask = X86GetAllElements(context, (long)mask * _masks_SliSri[op.Size]);
-
-                Operand dMasked = context.AddIntrinsic(Intrinsic.X86Pand, d, dMask);
-
-                Operand res = context.AddIntrinsic(Intrinsic.X86Por, nShifted, dMasked);
-
-                if ((op.RegisterSize == RegisterSize.Simd64) || scalar)
-                {
-                    res = context.VectorZeroUpper64(res);
-                }
-
-                context.Copy(d, res);
-            }
-            else if (Optimizations.UseSse2 && op.Size > 0)
+            if (Optimizations.UseSse2 && op.Size > 0)
             {
                 Operand d = GetVec(op.Rd);
                 Operand n = GetVec(op.Rn);
@@ -1159,23 +1168,8 @@ namespace ARMeilleure.Instructions
             }
         }
 
-        [Flags]
-        private enum ShlRegFlags
+        private static void EmitSshlOrUshl(ArmEmitterContext context, bool signed, bool scalar)
         {
-            None = 0,
-            Scalar = 1 << 0,
-            Signed = 1 << 1,
-            Round = 1 << 2,
-            Saturating = 1 << 3
-        }
-
-        private static void EmitShlRegOp(ArmEmitterContext context, ShlRegFlags flags = ShlRegFlags.None)
-        {
-            bool scalar = flags.HasFlag(ShlRegFlags.Scalar);
-            bool signed = flags.HasFlag(ShlRegFlags.Signed);
-            bool round = flags.HasFlag(ShlRegFlags.Round);
-            bool saturating = flags.HasFlag(ShlRegFlags.Saturating);
-
             OpCodeSimdReg op = (OpCodeSimdReg)context.CurrOp;
 
             Operand res = context.VectorZero();
@@ -1184,225 +1178,15 @@ namespace ARMeilleure.Instructions
 
             for (int index = 0; index < elems; index++)
             {
-                Operand ne = EmitVectorExtract(context, op.Rn, index, op.Size, signed);
-                Operand me = EmitVectorExtractSx(context, op.Rm, index << op.Size, size: 0);
+                Operand ne = EmitVectorExtract  (context, op.Rn, index, op.Size, signed);
+                Operand me = EmitVectorExtractSx(context, op.Rm, index << op.Size, 0);
 
-                Operand e = !saturating
-                    ? EmitShlReg(context, ne, context.ConvertI64ToI32(me), round, op.Size, signed)
-                    : EmitShlRegSatQ(context, ne, context.ConvertI64ToI32(me), round, op.Size, signed);
+                Operand e = EmitShlRegOp(context, ne, context.ConvertI64ToI32(me), op.Size, signed);
 
                 res = EmitVectorInsert(context, res, e, index, op.Size);
             }
 
             context.Copy(GetVec(op.Rd), res);
-        }
-
-        // long SignedShlReg(long op, int shiftLsB, bool round, int size);
-        // ulong UnsignedShlReg(ulong op, int shiftLsB, bool round, int size);
-        private static Operand EmitShlReg(ArmEmitterContext context, Operand op, Operand shiftLsB, bool round, int size, bool signed)
-        {
-            int eSize = 8 << size;
-
-            Debug.Assert(op.Type == OperandType.I64);
-            Debug.Assert(shiftLsB.Type == OperandType.I32);
-            Debug.Assert(eSize == 8 || eSize == 16 || eSize == 32 || eSize == 64);
-
-            Operand lbl1 = Label();
-            Operand lblEnd = Label();
-
-            Operand eSizeOp = Const(eSize);
-            Operand zero = Const(0);
-            Operand zeroL = Const(0L);
-
-            Operand res = context.Copy(context.AllocateLocal(OperandType.I64), op);
-
-            context.BranchIf(lbl1, shiftLsB, zero, Comparison.GreaterOrEqual);
-            context.Copy(res, signed
-                ? EmitSignedShrReg(context, op, context.Negate(shiftLsB), round, eSize)
-                : EmitUnsignedShrReg(context, op, context.Negate(shiftLsB), round, eSize));
-            context.Branch(lblEnd);
-
-            context.MarkLabel(lbl1);
-            context.BranchIf(lblEnd, shiftLsB, zero, Comparison.LessOrEqual);
-            Operand shl = context.ShiftLeft(op, shiftLsB);
-            Operand isGreaterOrEqual = context.ICompareGreaterOrEqual(shiftLsB, eSizeOp);
-            context.Copy(res, context.ConditionalSelect(isGreaterOrEqual, zeroL, shl));
-            context.Branch(lblEnd);
-
-            context.MarkLabel(lblEnd);
-
-            return res;
-        }
-
-        // long SignedShlRegSatQ(long op, int shiftLsB, bool round, int size);
-        // ulong UnsignedShlRegSatQ(ulong op, int shiftLsB, bool round, int size);
-        private static Operand EmitShlRegSatQ(ArmEmitterContext context, Operand op, Operand shiftLsB, bool round, int size, bool signed)
-        {
-            int eSize = 8 << size;
-
-            Debug.Assert(op.Type == OperandType.I64);
-            Debug.Assert(shiftLsB.Type == OperandType.I32);
-            Debug.Assert(eSize == 8 || eSize == 16 || eSize == 32 || eSize == 64);
-
-            Operand lbl1 = Label();
-            Operand lbl2 = Label();
-            Operand lblEnd = Label();
-
-            Operand eSizeOp = Const(eSize);
-            Operand zero = Const(0);
-
-            Operand res = context.Copy(context.AllocateLocal(OperandType.I64), op);
-
-            context.BranchIf(lbl1, shiftLsB, zero, Comparison.GreaterOrEqual);
-            context.Copy(res, signed
-                ? EmitSignedShrReg(context, op, context.Negate(shiftLsB), round, eSize)
-                : EmitUnsignedShrReg(context, op, context.Negate(shiftLsB), round, eSize));
-            context.Branch(lblEnd);
-
-            context.MarkLabel(lbl1);
-            context.BranchIf(lblEnd, shiftLsB, zero, Comparison.LessOrEqual);
-            context.BranchIf(lbl2, shiftLsB, eSizeOp, Comparison.Less);
-            context.Copy(res, signed
-                ? EmitSignedSignSatQ(context, op, size)
-                : EmitUnsignedSignSatQ(context, op, size));
-            context.Branch(lblEnd);
-
-            context.MarkLabel(lbl2);
-            Operand shl = context.ShiftLeft(op, shiftLsB);
-            if (eSize == 64)
-            {
-                Operand sarOrShr = signed
-                    ? context.ShiftRightSI(shl, shiftLsB)
-                    : context.ShiftRightUI(shl, shiftLsB);
-                context.Copy(res, shl);
-                context.BranchIf(lblEnd, sarOrShr, op, Comparison.Equal);
-                context.Copy(res, signed
-                    ? EmitSignedSignSatQ(context, op, size)
-                    : EmitUnsignedSignSatQ(context, op, size));
-            }
-            else
-            {
-                context.Copy(res, signed
-                    ? EmitSignedSrcSatQ(context, shl, size, signedDst: true)
-                    : EmitUnsignedSrcSatQ(context, shl, size, signedDst: false));
-            }
-            context.Branch(lblEnd);
-
-            context.MarkLabel(lblEnd);
-
-            return res;
-        }
-
-        // shift := [1, 128]; eSize := {8, 16, 32, 64}.
-        // long SignedShrReg(long op, int shift, bool round, int eSize);
-        private static Operand EmitSignedShrReg(ArmEmitterContext context, Operand op, Operand shift, bool round, int eSize)
-        {
-            if (round)
-            {
-                Operand lblEnd = Label();
-
-                Operand eSizeOp = Const(eSize);
-                Operand zeroL = Const(0L);
-                Operand one = Const(1);
-                Operand oneL = Const(1L);
-
-                Operand res = context.Copy(context.AllocateLocal(OperandType.I64), zeroL);
-
-                context.BranchIf(lblEnd, shift, eSizeOp, Comparison.GreaterOrEqual);
-                Operand roundConst = context.ShiftLeft(oneL, context.Subtract(shift, one));
-                Operand add = context.Add(op, roundConst);
-                Operand sar = context.ShiftRightSI(add, shift);
-                if (eSize == 64)
-                {
-                    Operand shr = context.ShiftRightUI(add, shift);
-                    Operand left = context.BitwiseAnd(context.Negate(op), context.BitwiseExclusiveOr(op, add));
-                    Operand isLess = context.ICompareLess(left, zeroL);
-                    context.Copy(res, context.ConditionalSelect(isLess, shr, sar));
-                }
-                else
-                {
-                    context.Copy(res, sar);
-                }
-                context.Branch(lblEnd);
-
-                context.MarkLabel(lblEnd);
-
-                return res;
-            }
-            else
-            {
-                Operand lblEnd = Label();
-
-                Operand eSizeOp = Const(eSize);
-                Operand zeroL = Const(0L);
-                Operand negOneL = Const(-1L);
-
-                Operand sar = context.ShiftRightSI(op, shift);
-                Operand res = context.Copy(context.AllocateLocal(OperandType.I64), sar);
-
-                context.BranchIf(lblEnd, shift, eSizeOp, Comparison.Less);
-                Operand isLess = context.ICompareLess(op, zeroL);
-                context.Copy(res, context.ConditionalSelect(isLess, negOneL, zeroL));
-                context.Branch(lblEnd);
-
-                context.MarkLabel(lblEnd);
-
-                return res;
-            }
-        }
-
-        // shift := [1, 128]; eSize := {8, 16, 32, 64}.
-        // ulong UnsignedShrReg(ulong op, int shift, bool round, int eSize);
-        private static Operand EmitUnsignedShrReg(ArmEmitterContext context, Operand op, Operand shift, bool round, int eSize)
-        {
-            if (round)
-            {
-                Operand lblEnd = Label();
-
-                Operand zeroUL = Const(0UL);
-                Operand one = Const(1);
-                Operand oneUL = Const(1UL);
-                Operand eSizeMaxOp = Const(64);
-                Operand oneShl63UL = Const(1UL << 63);
-
-                Operand res = context.Copy(context.AllocateLocal(OperandType.I64), zeroUL);
-
-                context.BranchIf(lblEnd, shift, eSizeMaxOp, Comparison.Greater);
-                Operand roundConst = context.ShiftLeft(oneUL, context.Subtract(shift, one));
-                Operand add = context.Add(op, roundConst);
-                Operand shr = context.ShiftRightUI(add, shift);
-                Operand isEqual = context.ICompareEqual(shift, eSizeMaxOp);
-                context.Copy(res, context.ConditionalSelect(isEqual, zeroUL, shr));
-                if (eSize == 64)
-                {
-                    context.BranchIf(lblEnd, add, op, Comparison.GreaterOrEqualUI);
-                    Operand right = context.BitwiseOr(shr, context.ShiftRightUI(oneShl63UL, context.Subtract(shift, one)));
-                    context.Copy(res, context.ConditionalSelect(isEqual, oneUL, right));
-                }
-                context.Branch(lblEnd);
-
-                context.MarkLabel(lblEnd);
-
-                return res;
-            }
-            else
-            {
-                Operand lblEnd = Label();
-
-                Operand eSizeOp = Const(eSize);
-                Operand zeroUL = Const(0UL);
-
-                Operand shr = context.ShiftRightUI(op, shift);
-                Operand res = context.Copy(context.AllocateLocal(OperandType.I64), shr);
-
-                context.BranchIf(lblEnd, shift, eSizeOp, Comparison.Less);
-                context.Copy(res, zeroUL);
-                context.Branch(lblEnd);
-
-                context.MarkLabel(lblEnd);
-
-                return res;
-            }
         }
     }
 }

@@ -1,15 +1,23 @@
-using Ryujinx.Common.Memory;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Ro
 {
-    [StructLayout(LayoutKind.Sequential, Size = 0x220)]
-    struct NRRCertification
+    [StructLayout(LayoutKind.Explicit, Size = 0x220)]
+    unsafe struct NRRCertification
     {
+        [FieldOffset(0)]
         public ulong ApplicationIdMask;
+
+        [FieldOffset(0x8)]
         public ulong ApplicationIdPattern;
-        private Array16<byte> _reserved;
-        public ByteArray256 Modulus;
-        public ByteArray256 Signature;
+
+        [FieldOffset(0x10)]
+        public fixed byte Reserved[0x10];
+
+        [FieldOffset(0x20)]
+        public fixed byte Modulus[0x100];
+
+        [FieldOffset(0x120)]
+        public fixed byte Signature[0x100];
     }
 }

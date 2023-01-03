@@ -1,19 +1,20 @@
-﻿using System;
+﻿using Ryujinx.HLE.Utilities;
+using System;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Mii.Types
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 1, Size = 0x10)]
+    [StructLayout(LayoutKind.Sequential, Size = 0x10)]
     struct CreateId : IEquatable<CreateId>
     {
         public UInt128 Raw;
 
-        public bool IsNull => Raw == UInt128.Zero;
-        public bool IsValid => !IsNull && ((Raw >> 64) & 0xC0) == 0x80;
+        public bool IsNull => Raw.IsNull;
+        public bool IsValid => !IsNull && (Raw.High & 0xC0) == 0x80;
 
-        public CreateId(UInt128 raw)
+        public CreateId(byte[] data)
         {
-            Raw = raw;
+            Raw = new UInt128(data);
         }
 
         public static bool operator ==(CreateId x, CreateId y)

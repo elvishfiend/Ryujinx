@@ -1,31 +1,25 @@
+using LibHac.Ns;
 using Ryujinx.Common.Logging;
 using Ryujinx.HLE.HOS.Services.Arp;
 using System;
-
-using static LibHac.Ns.ApplicationControlProperty;
 
 namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
 {
     class IParentalControlService : IpcService
     {
-        private ulong                    _pid;
         private int                      _permissionFlag;
         private ulong                    _titleId;
         private ParentalControlFlagValue _parentalControlFlag;
         private int[]                    _ratingAge;
 
-#pragma warning disable CS0414
         // TODO: Find where they are set.
         private bool _restrictionEnabled                  = false;
         private bool _featuresRestriction                 = false;
-        private bool _freeCommunicationEnabled            = false;
         private bool _stereoVisionRestrictionConfigurable = true;
         private bool _stereoVisionRestriction             = false;
-#pragma warning restore CS0414
 
-        public IParentalControlService(ServiceCtx context, ulong pid, bool withInitialize, int permissionFlag)
+        public IParentalControlService(ServiceCtx context, bool withInitialize, int permissionFlag)
         {
-            _pid            = pid;
             _permissionFlag = permissionFlag;
 
             if (withInitialize)
@@ -34,7 +28,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
             }
         }
 
-        [CommandHipc(1)] // 4.0.0+
+        [Command(1)] // 4.0.0+
         // Initialize()
         public ResultCode Initialize(ServiceCtx context)
         {
@@ -45,7 +39,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
 
             ResultCode resultCode = ResultCode.InvalidPid;
 
-            if (_pid != 0)
+            if (context.Process.Pid != 0)
             {
                 if ((_permissionFlag & 0x40) == 0)
                 {
@@ -56,8 +50,8 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
                         _titleId = titleId;
 
                         // TODO: Call nn::arp::GetApplicationControlProperty here when implemented, if it return ResultCode.Success we assign fields.
-                        _ratingAge           = Array.ConvertAll(context.Device.Application.ControlData.Value.RatingAge.ItemsRo.ToArray(), Convert.ToInt32);
-                        _parentalControlFlag = context.Device.Application.ControlData.Value.ParentalControlFlag;
+                        _ratingAge           = Array.ConvertAll(context.Device.Application.ControlData.Value.RatingAge.ToArray(), Convert.ToInt32);
+                        _parentalControlFlag = context.Device.Application.ControlData.Value.ParentalControl;
                     }
                 }
 
@@ -79,7 +73,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
             return resultCode;
         }
 
-        [CommandHipc(1001)]
+        [Command(1001)]
         // CheckFreeCommunicationPermission()
         public ResultCode CheckFreeCommunicationPermission(ServiceCtx context)
         {
@@ -91,30 +85,21 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
                 return ResultCode.FreeCommunicationDisabled;
             }
 
-            _freeCommunicationEnabled = true;
+            // NOTE: This sets an internal field to true. Usage have to be determined.
 
             Logger.Stub?.PrintStub(LogClass.ServicePctl);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(1017)] // 10.0.0+
-        // EndFreeCommunication()
-        public ResultCode EndFreeCommunication(ServiceCtx context)
-        {
-            _freeCommunicationEnabled = false;
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(1013)] // 4.0.0+
+        [Command(1013)] // 4.0.0+
         // ConfirmStereoVisionPermission()
         public ResultCode ConfirmStereoVisionPermission(ServiceCtx context)
         {
             return IsStereoVisionPermittedImpl();
         }
 
-        [CommandHipc(1018)]
+        [Command(1018)]
         // IsFreeCommunicationAvailable()
         public ResultCode IsFreeCommunicationAvailable(ServiceCtx context)
         {
@@ -131,7 +116,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
             return ResultCode.Success;
         }
 
-        [CommandHipc(1031)]
+        [Command(1031)]
         // IsRestrictionEnabled() -> b8
         public ResultCode IsRestrictionEnabled(ServiceCtx context)
         {
@@ -145,7 +130,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
             return ResultCode.Success;
         }
 
-        [CommandHipc(1061)] // 4.0.0+
+        [Command(1061)] // 4.0.0+
         // ConfirmStereoVisionRestrictionConfigurable()
         public ResultCode ConfirmStereoVisionRestrictionConfigurable(ServiceCtx context)
         {
@@ -164,7 +149,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
             }
         }
 
-        [CommandHipc(1062)] // 4.0.0+
+        [Command(1062)] // 4.0.0+
         // GetStereoVisionRestriction() -> bool
         public ResultCode GetStereoVisionRestriction(ServiceCtx context)
         {
@@ -185,7 +170,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
             return ResultCode.Success;
         }
 
-        [CommandHipc(1063)] // 4.0.0+
+        [Command(1063)] // 4.0.0+
         // SetStereoVisionRestriction(bool)
         public ResultCode SetStereoVisionRestriction(ServiceCtx context)
         {
@@ -209,14 +194,14 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
             return ResultCode.Success;
         }
 
-        [CommandHipc(1064)] // 5.0.0+
+        [Command(1064)] // 5.0.0+
         // ResetConfirmedStereoVisionPermission()
         public ResultCode ResetConfirmedStereoVisionPermission(ServiceCtx context)
         {
             return ResultCode.Success;
         }
 
-        [CommandHipc(1065)] // 5.0.0+
+        [Command(1065)] // 5.0.0+
         // IsStereoVisionPermitted() -> bool
         public ResultCode IsStereoVisionPermitted(ServiceCtx context)
         {
@@ -237,7 +222,7 @@ namespace Ryujinx.HLE.HOS.Services.Pctl.ParentalControlServiceFactory
         private ResultCode IsStereoVisionPermittedImpl()
         {
             /*
-                // TODO: Application Exemptions are read from file "appExemptions.dat" in the service savedata.
+                // TODO: Application Exemptions are readed from file "appExemptions.dat" in the service savedata.
                 //       Since we don't support the pctl savedata for now, this can be implemented later.
 
                 if (appExemption)

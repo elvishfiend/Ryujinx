@@ -11,8 +11,7 @@ namespace Ryujinx.HLE.HOS.Services
 {
     abstract class IpcService
     {
-        public IReadOnlyDictionary<int, MethodInfo> HipcCommands { get; }
-        public IReadOnlyDictionary<int, MethodInfo> TipcCommands { get; }
+        public IReadOnlyDictionary<int, MethodInfo> Commands { get; }
 
         public ServerBase Server { get; private set; }
 
@@ -23,18 +22,11 @@ namespace Ryujinx.HLE.HOS.Services
 
         public IpcService(ServerBase server = null)
         {
-            HipcCommands = Assembly.GetExecutingAssembly().GetTypes()
+            Commands = Assembly.GetExecutingAssembly().GetTypes()
                 .Where(type => type == GetType())
                 .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public))
-                .SelectMany(methodInfo => methodInfo.GetCustomAttributes(typeof(CommandHipcAttribute))
-                .Select(command => (((CommandHipcAttribute)command).Id, methodInfo)))
-                .ToDictionary(command => command.Id, command => command.methodInfo);
-
-            TipcCommands = Assembly.GetExecutingAssembly().GetTypes()
-                .Where(type => type == GetType())
-                .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public))
-                .SelectMany(methodInfo => methodInfo.GetCustomAttributes(typeof(CommandTipcAttribute))
-                .Select(command => (((CommandTipcAttribute)command).Id, methodInfo)))
+                .SelectMany(methodInfo => methodInfo.GetCustomAttributes(typeof(CommandAttribute))
+                .Select(command => (((CommandAttribute)command).Id, methodInfo)))
                 .ToDictionary(command => command.Id, command => command.methodInfo);
 
             Server = server;
@@ -61,7 +53,7 @@ namespace Ryujinx.HLE.HOS.Services
             _isDomain = false;
         }
 
-        public void CallHipcMethod(ServiceCtx context)
+        public void CallMethod(ServiceCtx context)
         {
             IpcService service = this;
 
@@ -107,9 +99,9 @@ namespace Ryujinx.HLE.HOS.Services
             long sfciMagic = context.RequestData.ReadInt64();
             int commandId = (int)context.RequestData.ReadInt64();
 
-            bool serviceExists = service.HipcCommands.TryGetValue(commandId, out MethodInfo processRequest);
+            bool serviceExists = service.Commands.TryGetValue(commandId, out MethodInfo processRequest);
 
-            if (context.Device.Configuration.IgnoreMissingServices || serviceExists)
+            if (ServiceConfiguration.IgnoreMissingServices || serviceExists)
             {
                 ResultCode result = ResultCode.Success;
 
@@ -117,7 +109,7 @@ namespace Ryujinx.HLE.HOS.Services
 
                 if (serviceExists)
                 {
-                    Logger.Trace?.Print(LogClass.KernelIpc, $"{service.GetType().Name}: {processRequest.Name}");
+                    Logger.Debug?.Print(LogClass.KernelIpc, $"{service.GetType().Name}: {processRequest.Name}");
 
                     result = (ResultCode)processRequest.Invoke(service, new object[] { context });
                 }
@@ -157,47 +149,6 @@ namespace Ryujinx.HLE.HOS.Services
             }
         }
 
-        public void CallTipcMethod(ServiceCtx context)
-        {
-            int commandId = (int)context.Request.Type - 0x10;
-
-            bool serviceExists = TipcCommands.TryGetValue(commandId, out MethodInfo processRequest);
-
-            if (context.Device.Configuration.IgnoreMissingServices || serviceExists)
-            {
-                ResultCode result = ResultCode.Success;
-
-                context.ResponseData.BaseStream.Seek(0x4, SeekOrigin.Begin);
-
-                if (serviceExists)
-                {
-                    Logger.Debug?.Print(LogClass.KernelIpc, $"{GetType().Name}: {processRequest.Name}");
-
-                    result = (ResultCode)processRequest.Invoke(this, new object[] { context });
-                }
-                else
-                {
-                    string serviceName;
-
-                    DummyService dummyService = this as DummyService;
-
-                    serviceName = (dummyService == null) ? GetType().FullName : dummyService.ServiceName;
-
-                    Logger.Warning?.Print(LogClass.KernelIpc, $"Missing service {serviceName}: {commandId} ignored");
-                }
-
-                context.ResponseData.BaseStream.Seek(0, SeekOrigin.Begin);
-
-                context.ResponseData.Write((uint)result);
-            }
-            else
-            {
-                string dbgMessage = $"{GetType().FullName}: {commandId}";
-
-                throw new ServiceNotImplementedException(this, context, dbgMessage);
-            }
-        }
-
         protected void MakeObject(ServiceCtx context, IpcService obj)
         {
             obj.TrySetServer(_parent.Server);
@@ -210,7 +161,7 @@ namespace Ryujinx.HLE.HOS.Services
             }
             else
             {
-                context.Device.System.KernelContext.Syscall.CreateSession(out int serverSessionHandle, out int clientSessionHandle, false, 0);
+                context.Device.System.KernelContext.Syscall.CreateSession(false, 0, out int serverSessionHandle, out int clientSessionHandle);
 
                 obj.Server.AddSessionObj(serverSessionHandle, obj);
 
@@ -264,19 +215,6 @@ namespace Ryujinx.HLE.HOS.Services
         public void SetParent(IpcService parent)
         {
             _parent = parent._parent;
-        }
-
-        public virtual void DestroyAtExit()
-        {
-            foreach (object domainObject in _domainObjects.Values)
-            {
-                if (domainObject != this && domainObject is IDisposable disposableObj)
-                {
-                    disposableObj.Dispose();
-                }
-            }
-
-            _domainObjects.Clear();
         }
     }
 }

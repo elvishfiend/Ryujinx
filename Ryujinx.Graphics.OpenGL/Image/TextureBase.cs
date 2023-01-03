@@ -3,7 +3,7 @@ using Ryujinx.Graphics.GAL;
 
 namespace Ryujinx.Graphics.OpenGL.Image
 {
-    class TextureBase
+    class TextureBase : ITextureInfo
     {
         public int Handle { get; protected set; }
 
@@ -33,12 +33,6 @@ namespace Ryujinx.Graphics.OpenGL.Image
         {
             GL.ActiveTexture(TextureUnit.Texture0 + unit);
             GL.BindTexture(target, Handle);
-        }
-
-        public static void ClearBinding(int unit)
-        {
-            GL.ActiveTexture(TextureUnit.Texture0 + unit);
-            GL.BindTextureUnit(unit, 0);
         }
     }
 }

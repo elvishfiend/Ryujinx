@@ -1,5 +1,4 @@
 ﻿using Ryujinx.Common.Logging;
-using Ryujinx.Cpu;
 using Ryujinx.HLE.HOS.Kernel.Threading;
 using Ryujinx.HLE.HOS.Services.Settings;
 using Ryujinx.HLE.HOS.Services.SurfaceFlinger.Types;
@@ -13,8 +12,6 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
     {
         public BufferQueueCore Core { get; }
 
-        private readonly ITickSource _tickSource;
-
         private uint _stickyTransform;
 
         private uint _nextCallbackTicket;
@@ -23,10 +20,9 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
 
         private readonly object _callbackLock = new object();
 
-        public BufferQueueProducer(BufferQueueCore core, ITickSource tickSource)
+        public BufferQueueProducer(BufferQueueCore core)
         {
             Core = core;
-            _tickSource = tickSource;
 
             _stickyTransform       = 0;
             _callbackTicket        = 0;
@@ -183,8 +179,8 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                 GraphicBuffer graphicBuffer = Core.Slots[slot].GraphicBuffer.Object;
 
                 if (Core.Slots[slot].GraphicBuffer.IsNull
-                    || graphicBuffer.Width != width
-                    || graphicBuffer.Height != height
+                    || graphicBuffer.Width != width 
+                    || graphicBuffer.Height != height 
                     || graphicBuffer.Format != format
                     || (graphicBuffer.Usage & usage) != usage)
                 {
@@ -197,7 +193,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                     }
                     else
                     {
-                        Logger.Error?.Print(LogClass.SurfaceFlinger,
+                        Logger.Error?.Print(LogClass.SurfaceFlinger, 
                                             $"Preallocated buffer mismatch - slot {slot}\n" +
                                             $"available: Width = {graphicBuffer.Width} Height = {graphicBuffer.Height} Format = {graphicBuffer.Format} Usage = {graphicBuffer.Usage:x} " +
                                             $"requested: Width = {width} Height = {height} Format = {format} Usage = {usage:x}");
@@ -392,7 +388,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                 Core.Slots[slot].BufferState = BufferState.Queued;
                 Core.FrameCounter++;
                 Core.Slots[slot].FrameNumber      = Core.FrameCounter;
-                Core.Slots[slot].QueueTime        = TimeSpanType.FromTimeSpan(_tickSource.ElapsedTime);
+                Core.Slots[slot].QueueTime        = TimeSpanType.FromTimeSpan(ARMeilleure.State.ExecutionContext.ElapsedTime);
                 Core.Slots[slot].PresentationTime = TimeSpanType.Zero;
 
                 item.AcquireCalled             = Core.Slots[slot].AcquireCalled;

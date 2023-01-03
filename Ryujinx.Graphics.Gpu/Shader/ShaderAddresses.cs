@@ -1,6 +1,4 @@
 using System;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Ryujinx.Graphics.Gpu.Shader
 {
@@ -11,7 +9,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
     {
 #pragma warning disable CS0649
         public ulong VertexA;
-        public ulong VertexB;
+        public ulong Vertex;
         public ulong TessControl;
         public ulong TessEvaluation;
         public ulong Geometry;
@@ -36,7 +34,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
         public bool Equals(ShaderAddresses other)
         {
             return VertexA        == other.VertexA &&
-                   VertexB        == other.VertexB &&
+                   Vertex         == other.Vertex &&
                    TessControl    == other.TessControl &&
                    TessEvaluation == other.TessEvaluation &&
                    Geometry       == other.Geometry &&
@@ -49,16 +47,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
         /// <returns>Hash code</returns>
         public override int GetHashCode()
         {
-            return HashCode.Combine(VertexA, VertexB, TessControl, TessEvaluation, Geometry, Fragment);
-        }
-
-        /// <summary>
-        /// Gets a view of the structure as a span of addresses.
-        /// </summary>
-        /// <returns>Span of addresses</returns>
-        public Span<ulong> AsSpan()
-        {
-            return MemoryMarshal.CreateSpan(ref VertexA, Unsafe.SizeOf<ShaderAddresses>() / sizeof(ulong));
+            return HashCode.Combine(VertexA, Vertex, TessControl, TessEvaluation, Geometry, Fragment);
         }
     }
 }

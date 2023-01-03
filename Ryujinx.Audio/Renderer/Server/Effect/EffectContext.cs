@@ -1,6 +1,20 @@
-using Ryujinx.Audio.Renderer.Parameter;
-using Ryujinx.Audio.Renderer.Utils;
-using System;
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using System.Diagnostics;
 
 namespace Ryujinx.Audio.Renderer.Server.Effect
@@ -20,9 +34,6 @@ namespace Ryujinx.Audio.Renderer.Server.Effect
         /// </summary>
         private uint _effectCount;
 
-        private EffectResultState[] _resultStatesCpu;
-        private EffectResultState[] _resultStatesDsp;
-
         /// <summary>
         /// Create a new <see cref="EffectContext"/>.
         /// </summary>
@@ -36,8 +47,7 @@ namespace Ryujinx.Audio.Renderer.Server.Effect
         /// Initialize the <see cref="EffectContext"/>.
         /// </summary>
         /// <param name="effectCount">The total effect count.</param>
-        /// <param name="resultStateCount">The total result state count.</param>
-        public void Initialize(uint effectCount, uint resultStateCount)
+        public void Initialize(uint effectCount)
         {
             _effectCount = effectCount;
             _effects = new BaseEffect[effectCount];
@@ -46,9 +56,6 @@ namespace Ryujinx.Audio.Renderer.Server.Effect
             {
                 _effects[i] = new BaseEffect();
             }
-
-            _resultStatesCpu = new EffectResultState[resultStateCount];
-            _resultStatesDsp = new EffectResultState[resultStateCount];
         }
 
         /// <summary>
@@ -70,54 +77,6 @@ namespace Ryujinx.Audio.Renderer.Server.Effect
             Debug.Assert(index >= 0 && index < _effectCount);
 
             return ref _effects[index];
-        }
-
-        /// <summary>
-        /// Get a reference to a <see cref="EffectResultState"/> at the given <paramref name="index"/>.
-        /// </summary>
-        /// <param name="index">The index to use.</param>
-        /// <returns>A reference to a <see cref="EffectResultState"/> at the given <paramref name="index"/>.</returns>
-        /// <remarks>The returned <see cref="EffectResultState"/> should only be used when updating the server state.</remarks>
-        public ref EffectResultState GetState(int index)
-        {
-            Debug.Assert(index >= 0 && index < _resultStatesCpu.Length);
-
-            return ref _resultStatesCpu[index];
-        }
-
-        /// <summary>
-        /// Get a reference to a <see cref="EffectResultState"/> at the given <paramref name="index"/>.
-        /// </summary>
-        /// <param name="index">The index to use.</param>
-        /// <returns>A reference to a <see cref="EffectResultState"/> at the given <paramref name="index"/>.</returns>
-        /// <remarks>The returned <see cref="EffectResultState"/> should only be used in the context of processing on the <see cref="Dsp.AudioProcessor"/>.</remarks>
-        public ref EffectResultState GetDspState(int index)
-        {
-            Debug.Assert(index >= 0 && index < _resultStatesDsp.Length);
-
-            return ref _resultStatesDsp[index];
-        }
-
-        /// <summary>
-        /// Get a memory instance to a <see cref="EffectResultState"/> at the given <paramref name="index"/>.
-        /// </summary>
-        /// <param name="index">The index to use.</param>
-        /// <returns>A memory instance to a <see cref="EffectResultState"/> at the given <paramref name="index"/>.</returns>
-        /// <remarks>The returned <see cref="Memory{EffectResultState}"/> should only be used in the context of processing on the <see cref="Dsp.AudioProcessor"/>.</remarks>
-        public Memory<EffectResultState> GetDspStateMemory(int index)
-        {
-            return SpanIOHelper.GetMemory(_resultStatesDsp.AsMemory(), index, (uint)_resultStatesDsp.Length);
-        }
-
-        /// <summary>
-        /// Update internal state during command generation.
-        /// </summary>
-        public void UpdateResultStateForCommandGeneration()
-        {
-            for (int index = 0; index < _resultStatesCpu.Length; index++)
-            {
-                _effects[index].UpdateResultState(ref _resultStatesCpu[index], ref _resultStatesDsp[index]);
-            }
         }
     }
 }

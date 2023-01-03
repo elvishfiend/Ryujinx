@@ -1,7 +1,6 @@
 using Ryujinx.Graphics.Shader.CodeGen.Glsl.Instructions;
 using Ryujinx.Graphics.Shader.IntermediateRepresentation;
 using Ryujinx.Graphics.Shader.StructuredIr;
-using Ryujinx.Graphics.Shader.Translation;
 using System;
 
 namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
@@ -11,8 +10,8 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
         public static string ReinterpretCast(
             CodeGenContext context,
             IAstNode       node,
-            AggregateType  srcType,
-            AggregateType  dstType)
+            VariableType   srcType,
+            VariableType   dstType)
         {
             if (node is AstOperand operand && operand.Type == OperandType.Constant)
             {
@@ -27,46 +26,46 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             return ReinterpretCast(expr, node, srcType, dstType);
         }
 
-        private static string ReinterpretCast(string expr, IAstNode node, AggregateType srcType, AggregateType dstType)
+        private static string ReinterpretCast(string expr, IAstNode node, VariableType srcType, VariableType dstType)
         {
             if (srcType == dstType)
             {
                 return expr;
             }
 
-            if (srcType == AggregateType.FP32)
+            if (srcType == VariableType.F32)
             {
                 switch (dstType)
                 {
-                    case AggregateType.Bool: return $"(floatBitsToInt({expr}) != 0)";
-                    case AggregateType.S32:  return $"floatBitsToInt({expr})";
-                    case AggregateType.U32:  return $"floatBitsToUint({expr})";
+                    case VariableType.Bool: return $"(floatBitsToInt({expr}) != 0)";
+                    case VariableType.S32:  return $"floatBitsToInt({expr})";
+                    case VariableType.U32:  return $"floatBitsToUint({expr})";
                 }
             }
-            else if (dstType == AggregateType.FP32)
+            else if (dstType == VariableType.F32)
             {
                 switch (srcType)
                 {
-                    case AggregateType.Bool: return $"intBitsToFloat({ReinterpretBoolToInt(expr, node, AggregateType.S32)})";
-                    case AggregateType.S32:  return $"intBitsToFloat({expr})";
-                    case AggregateType.U32:  return $"uintBitsToFloat({expr})";
+                    case VariableType.Bool: return $"intBitsToFloat({ReinterpretBoolToInt(expr, node, VariableType.S32)})";
+                    case VariableType.S32:  return $"intBitsToFloat({expr})";
+                    case VariableType.U32:  return $"uintBitsToFloat({expr})";
                 }
             }
-            else if (srcType == AggregateType.Bool)
+            else if (srcType == VariableType.Bool)
             {
                 return ReinterpretBoolToInt(expr, node, dstType);
             }
-            else if (dstType == AggregateType.Bool)
+            else if (dstType == VariableType.Bool)
             {
                 expr = InstGenHelper.Enclose(expr, node, Instruction.CompareNotEqual, isLhs: true);
 
                 return $"({expr} != 0)";
             }
-            else if (dstType == AggregateType.S32)
+            else if (dstType == VariableType.S32)
             {
                 return $"int({expr})";
             }
-            else if (dstType == AggregateType.U32)
+            else if (dstType == VariableType.U32)
             {
                 return $"uint({expr})";
             }
@@ -74,7 +73,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             throw new ArgumentException($"Invalid reinterpret cast from \"{srcType}\" to \"{dstType}\".");
         }
 
-        private static string ReinterpretBoolToInt(string expr, IAstNode node, AggregateType dstType)
+        private static string ReinterpretBoolToInt(string expr, IAstNode node, VariableType dstType)
         {
             string trueExpr  = NumberFormatter.FormatInt(IrConsts.True,  dstType);
             string falseExpr = NumberFormatter.FormatInt(IrConsts.False, dstType);

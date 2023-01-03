@@ -6,7 +6,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
     {
         public IAudioController() { }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // SetExpectedMasterVolume(f32, f32)
         public ResultCode SetExpectedMasterVolume(ServiceCtx context)
         {
@@ -18,7 +18,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetMainAppletExpectedMasterVolume() -> f32
         public ResultCode GetMainAppletExpectedMasterVolume(ServiceCtx context)
         {
@@ -29,7 +29,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // GetLibraryAppletExpectedMasterVolume() -> f32
         public ResultCode GetLibraryAppletExpectedMasterVolume(ServiceCtx context)
         {
@@ -40,7 +40,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // ChangeMainAppletMasterVolume(f32, u64)
         public ResultCode ChangeMainAppletMasterVolume(ServiceCtx context)
         {
@@ -52,7 +52,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // SetTransparentVolumeRate(f32)
         public ResultCode SetTransparentVolumeRate(ServiceCtx context)
         {

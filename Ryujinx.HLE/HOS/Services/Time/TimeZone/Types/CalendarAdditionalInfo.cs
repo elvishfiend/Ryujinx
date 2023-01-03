@@ -1,5 +1,4 @@
-﻿using Ryujinx.Common.Memory;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
 {
@@ -9,12 +8,14 @@ namespace Ryujinx.HLE.HOS.Services.Time.TimeZone
         public uint DayOfWeek;
         public uint DayOfYear;
 
-        public Array8<byte> TimezoneName;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
+        public char[] TimezoneName;
 
         [MarshalAs(UnmanagedType.I1)]
         public bool IsDaySavingTime;
 
-        public Array3<byte> Padding;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
+        public char[] Padding;
 
         public int GmtOffset;
     }

@@ -15,8 +15,6 @@ namespace Ryujinx.Graphics.Nvdec.Vp9.Types
         public unsafe Plane UPlane => new Plane((IntPtr)UBuffer.ToPointer(), UBuffer.Length);
         public unsafe Plane VPlane => new Plane((IntPtr)VBuffer.ToPointer(), VBuffer.Length);
 
-        public FrameField Field => FrameField.Progressive;
-
         public int Width { get; }
         public int Height { get; }
         public int AlignedWidth { get; }

@@ -1,5 +1,4 @@
-﻿using System;
-using System.Net.NetworkInformation;
+﻿using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService.Types
@@ -14,18 +13,9 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService.Types
 
         public DnsSetting(IPInterfaceProperties interfaceProperties)
         {
-            IsDynamicDnsEnabled = OperatingSystem.IsWindows() && interfaceProperties.IsDynamicDnsEnabled;
-
-            if (interfaceProperties.DnsAddresses.Count == 0)
-            {
-                PrimaryDns   = new IpV4Address();
-                SecondaryDns = new IpV4Address();
-            }
-            else
-            {
-                PrimaryDns   = new IpV4Address(interfaceProperties.DnsAddresses[0]);
-                SecondaryDns = new IpV4Address(interfaceProperties.DnsAddresses[interfaceProperties.DnsAddresses.Count > 1 ? 1 : 0]);
-            }
+            IsDynamicDnsEnabled = interfaceProperties.IsDynamicDnsEnabled;
+            PrimaryDns          = new IpV4Address(interfaceProperties.DnsAddresses[0]);
+            SecondaryDns        = new IpV4Address(interfaceProperties.DnsAddresses[1]);
         }
     }
 }

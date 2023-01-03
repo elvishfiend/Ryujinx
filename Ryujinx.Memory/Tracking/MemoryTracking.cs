@@ -1,5 +1,4 @@
-﻿using Ryujinx.Common.Pools;
-using Ryujinx.Memory.Range;
+﻿using Ryujinx.Memory.Range;
 using System.Collections.Generic;
 
 namespace Ryujinx.Memory.Tracking
@@ -10,10 +9,13 @@ namespace Ryujinx.Memory.Tracking
     public class MemoryTracking
     {
         private readonly IVirtualMemoryManager _memoryManager;
-        private readonly InvalidAccessHandler _invalidAccessHandler;
+        private readonly MemoryBlock _block;
 
         // Only use these from within the lock.
         private readonly NonOverlappingRangeList<VirtualRegion> _virtualRegions;
+
+        // Only use these from within the lock.
+        private readonly VirtualRegion[] _virtualResults = new VirtualRegion[10];
 
         private readonly int _pageSize;
 
@@ -23,6 +25,8 @@ namespace Ryujinx.Memory.Tracking
         /// </summary>
         internal object TrackingLock = new object();
 
+        public bool EnablePhysicalProtection { get; set; }
+
         /// <summary>
         /// Create a new tracking structure for the given "physical" memory block,
         /// with a given "virtual" memory manager that will provide mappings and virtual memory protection.
@@ -30,11 +34,11 @@ namespace Ryujinx.Memory.Tracking
         /// <param name="memoryManager">Virtual memory manager</param>
         /// <param name="block">Physical memory block</param>
         /// <param name="pageSize">Page size of the virtual memory space</param>
-        public MemoryTracking(IVirtualMemoryManager memoryManager, int pageSize, InvalidAccessHandler invalidAccessHandler = null)
+        public MemoryTracking(IVirtualMemoryManager memoryManager, MemoryBlock block, int pageSize)
         {
             _memoryManager = memoryManager;
+            _block = block;
             _pageSize = pageSize;
-            _invalidAccessHandler = invalidAccessHandler;
 
             _virtualRegions = new NonOverlappingRangeList<VirtualRegion>();
         }
@@ -52,21 +56,21 @@ namespace Ryujinx.Memory.Tracking
         /// Should be called after the mapping is complete.
         /// </summary>
         /// <param name="va">Virtual memory address</param>
+        /// <param name="pa">Physical memory address</param>
         /// <param name="size">Size to be mapped</param>
-        public void Map(ulong va, ulong size)
+        public void Map(ulong va, ulong pa, ulong size)
         {
             // A mapping may mean we need to re-evaluate each VirtualRegion's affected area.
             // Find all handles that overlap with the range, we need to recalculate their physical regions
 
             lock (TrackingLock)
             {
-                ref var overlaps = ref ThreadStaticArray<VirtualRegion>.Get();
-
-                int count = _virtualRegions.FindOverlapsNonOverlapping(va, size, ref overlaps);
+                var results = _virtualResults;
+                int count = _virtualRegions.FindOverlapsNonOverlapping(va, size, ref results);
 
                 for (int i = 0; i < count; i++)
                 {
-                    VirtualRegion region = overlaps[i];
+                    VirtualRegion region = results[i];
 
                     // If the region has been fully remapped, signal that it has been mapped again.
                     bool remapped = _memoryManager.IsRangeMapped(region.Address, region.Size);
@@ -93,13 +97,12 @@ namespace Ryujinx.Memory.Tracking
 
             lock (TrackingLock)
             {
-                ref var overlaps = ref ThreadStaticArray<VirtualRegion>.Get();
-
-                int count = _virtualRegions.FindOverlapsNonOverlapping(va, size, ref overlaps);
+                var results = _virtualResults;
+                int count = _virtualRegions.FindOverlapsNonOverlapping(va, size, ref results);
 
                 for (int i = 0; i < count; i++)
                 {
-                    VirtualRegion region = overlaps[i];
+                    VirtualRegion region = results[i];
 
                     region.SignalMappingChanged(false);
                 }
@@ -134,14 +137,13 @@ namespace Ryujinx.Memory.Tracking
         /// </summary>
         /// <param name="address">CPU virtual address of the region</param>
         /// <param name="size">Size of the region</param>
-        /// <param name="handles">Handles to inherit state from or reuse. When none are present, provide null</param>
         /// <param name="granularity">Desired granularity of write tracking</param>
         /// <returns>The memory tracking handle</returns>
-        public MultiRegionHandle BeginGranularTracking(ulong address, ulong size, IEnumerable<IRegionHandle> handles, ulong granularity)
+        public MultiRegionHandle BeginGranularTracking(ulong address, ulong size, ulong granularity)
         {
             (address, size) = PageAlign(address, size);
 
-            return new MultiRegionHandle(this, address, size, handles, granularity);
+            return new MultiRegionHandle(this, address, size, granularity);
         }
 
         /// <summary>
@@ -177,26 +179,6 @@ namespace Ryujinx.Memory.Tracking
         }
 
         /// <summary>
-        /// Obtains a memory tracking handle for the given virtual region. This should be disposed when finished with.
-        /// </summary>
-        /// <param name="address">CPU virtual address of the region</param>
-        /// <param name="size">Size of the region</param>
-        /// <param name="bitmap">The bitmap owning the dirty flag for this handle</param>
-        /// <param name="bit">The bit of this handle within the dirty flag</param>
-        /// <returns>The memory tracking handle</returns>
-        internal RegionHandle BeginTrackingBitmap(ulong address, ulong size, ConcurrentBitmap bitmap, int bit)
-        {
-            (address, size) = PageAlign(address, size);
-
-            lock (TrackingLock)
-            {
-                RegionHandle handle = new RegionHandle(this, address, size, bitmap, bit, _memoryManager.IsRangeMapped(address, size));
-
-                return handle;
-            }
-        }
-
-        /// <summary>
         /// Signal that a virtual memory event happened at the given location (one byte).
         /// </summary>
         /// <param name="address">Virtual address accessed</param>
@@ -209,66 +191,32 @@ namespace Ryujinx.Memory.Tracking
 
         /// <summary>
         /// Signal that a virtual memory event happened at the given location.
-        /// This can be flagged as a precise event, which will avoid reprotection and call special handlers if possible.
-        /// A precise event has an exact address and size, rather than triggering on page granularity.
         /// </summary>
         /// <param name="address">Virtual address accessed</param>
         /// <param name="size">Size of the region affected in bytes</param>
         /// <param name="write">Whether the region was written to or read</param>
-        /// <param name="precise">True if the access is precise, false otherwise</param>
         /// <returns>True if the event triggered any tracking regions, false otherwise</returns>
-        public bool VirtualMemoryEvent(ulong address, ulong size, bool write, bool precise = false)
+        public bool VirtualMemoryEvent(ulong address, ulong size, bool write)
         {
             // Look up the virtual region using the region list.
             // Signal up the chain to relevant handles.
 
-            bool shouldThrow = false;
-
             lock (TrackingLock)
             {
-                ref var overlaps = ref ThreadStaticArray<VirtualRegion>.Get();
+                var results = _virtualResults;
+                int count = _virtualRegions.FindOverlapsNonOverlapping(address, size, ref results);
 
-                int count = _virtualRegions.FindOverlapsNonOverlapping(address, size, ref overlaps);
-
-                if (count == 0 && !precise)
+                if (count == 0)
                 {
-                    if (_memoryManager.IsRangeMapped(address, size))
-                    {
-                        // TODO: There is currently the possibility that a page can be protected after its virtual region is removed.
-                        // This code handles that case when it happens, but it would be better to find out how this happens.
-                        _memoryManager.TrackingReprotect(address & ~(ulong)(_pageSize - 1), (ulong)_pageSize, MemoryPermission.ReadAndWrite);
-                        return true; // This memory _should_ be mapped, so we need to try again.
-                    }
-                    else
-                    {
-                        shouldThrow = true;
-                    }
+                    _memoryManager.TrackingReprotect(address & ~(ulong)(_pageSize - 1), (ulong)_pageSize, MemoryPermission.ReadAndWrite);
+                    return false; // We can't handle this - it's probably a real invalid access.
                 }
-                else
+
+                for (int i = 0; i < count; i++)
                 {
-                    for (int i = 0; i < count; i++)
-                    {
-                        VirtualRegion region = overlaps[i];
-
-                        if (precise)
-                        {
-                            region.SignalPrecise(address, size, write);
-                        }
-                        else
-                        {
-                            region.Signal(address, size, write);
-                        }
-                    }
+                    VirtualRegion region = results[i];
+                    region.Signal(address, size, write);
                 }
-            }
-
-            if (shouldThrow)
-            {
-                _invalidAccessHandler?.Invoke(address);
-
-                // We can't continue - it's impossible to remove protection from the page.
-                // Even if the access handler wants us to continue, we wouldn't be able to.
-                throw new InvalidMemoryRegionException();
             }
 
             return true;

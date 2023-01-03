@@ -4,10 +4,9 @@
     {
         public int Vn { get; }
 
-        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdRegS(inst, address, opCode, false);
-        public new static OpCode CreateT32(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdRegS(inst, address, opCode, true);
+        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdRegS(inst, address, opCode);
 
-        public OpCode32SimdRegS(InstDescriptor inst, ulong address, int opCode, bool isThumb) : base(inst, address, opCode, isThumb)
+        public OpCode32SimdRegS(InstDescriptor inst, ulong address, int opCode) : base(inst, address, opCode)
         {
             bool single = Size != 3;
             if (single)

@@ -6,24 +6,12 @@ using System;
 using System.Diagnostics;
 
 using static ARMeilleure.Instructions.InstEmitHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
     static class InstEmitAluHelper
     {
-        public static bool ShouldSetFlags(ArmEmitterContext context)
-        {
-            IOpCode32HasSetFlags op = (IOpCode32HasSetFlags)context.CurrOp;
-
-            if (op.SetFlags == null)
-            {
-                return !context.IsInIfThenBlock;
-            }
-
-            return op.SetFlags.Value;
-        }
-
         public static void EmitNZFlagsCheck(ArmEmitterContext context, Operand d)
         {
             SetFlag(context, PState.NFlag, context.ICompareLess (d, Const(d.Type, 0)));
@@ -128,7 +116,7 @@ namespace ARMeilleure.Instructions
         {
             Debug.Assert(value.Type == OperandType.I32);
 
-            if (((OpCode32)context.CurrOp).IsThumb)
+            if (IsThumb(context.CurrOp))
             {
                 bool isReturn = IsA32Return(context);
                 if (!isReturn)
@@ -195,9 +183,9 @@ namespace ARMeilleure.Instructions
             switch (context.CurrOp)
             {
                 // ARM32.
-                case IOpCode32AluImm op:
+                case OpCode32AluImm op:
                 {
-                    if (ShouldSetFlags(context) && op.IsRotated && setCarry)
+                    if (op.SetFlags && op.IsRotated)
                     {
                         SetFlag(context, PState.CFlag, Const((uint)op.Immediate >> 31));
                     }
@@ -205,10 +193,12 @@ namespace ARMeilleure.Instructions
                     return Const(op.Immediate);
                 }
 
-                case IOpCode32AluImm16 op: return Const(op.Immediate);
+                case OpCode32AluImm16 op: return Const(op.Immediate);
 
-                case IOpCode32AluRsImm op: return GetMShiftedByImmediate(context, op, setCarry);
-                case IOpCode32AluRsReg op: return GetMShiftedByReg(context, op, setCarry);
+                case OpCode32AluRsImm op: return GetMShiftedByImmediate(context, op, setCarry);
+                case OpCode32AluRsReg op: return GetMShiftedByReg(context, op, setCarry);
+
+                case OpCodeT16AluImm8 op: return Const(op.Immediate);
 
                 case IOpCode32AluReg op: return GetIntA32(context, op.Rm);
 
@@ -259,7 +249,7 @@ namespace ARMeilleure.Instructions
         }
 
         // ARM32 helpers.
-        public static Operand GetMShiftedByImmediate(ArmEmitterContext context, IOpCode32AluRsImm op, bool setCarry)
+        public static Operand GetMShiftedByImmediate(ArmEmitterContext context, OpCode32AluRsImm op, bool setCarry)
         {
             Operand m = GetIntA32(context, op.Rm);
 
@@ -277,7 +267,7 @@ namespace ARMeilleure.Instructions
 
             if (shift != 0)
             {
-                setCarry &= ShouldSetFlags(context);
+                setCarry &= op.SetFlags;
 
                 switch (op.ShiftType)
                 {
@@ -315,7 +305,7 @@ namespace ARMeilleure.Instructions
             return shift;
         }
 
-        public static Operand GetMShiftedByReg(ArmEmitterContext context, IOpCode32AluRsReg op, bool setCarry)
+        public static Operand GetMShiftedByReg(ArmEmitterContext context, OpCode32AluRsReg op, bool setCarry)
         {
             Operand m = GetIntA32(context, op.Rm);
             Operand s = context.ZeroExtend8(OperandType.I32, GetIntA32(context, op.Rs));
@@ -324,7 +314,7 @@ namespace ARMeilleure.Instructions
             Operand zeroResult = m;
             Operand shiftResult = m;
 
-            setCarry &= ShouldSetFlags(context);
+            setCarry &= op.SetFlags;
 
             switch (op.ShiftType)
             {

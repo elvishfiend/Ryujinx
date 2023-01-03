@@ -2,73 +2,30 @@ using System;
 
 namespace ARMeilleure.CodeGen.RegisterAllocators
 {
-    unsafe readonly struct LiveRange : IEquatable<LiveRange>
+    struct LiveRange : IComparable<LiveRange>
     {
-        private struct Data
+        public int Start { get; }
+        public int End   { get; }
+
+        public LiveRange(int start, int end)
         {
-            public int Start;
-            public int End;
-            public LiveRange Next;
-        }
-
-        private readonly Data* _data;
-
-        public ref int Start => ref _data->Start;
-        public ref int End => ref _data->End;
-        public ref LiveRange Next => ref _data->Next;
-
-        public LiveRange(int start, int end, LiveRange next = default)
-        {
-            _data = Allocators.LiveRanges.Allocate<Data>();
-
             Start = start;
-            End = end;
-            Next = next;
+            End   = end;
         }
 
-        public bool Overlaps(int start, int end)
+        public int CompareTo(LiveRange other)
         {
-            return Start < end && start < End;
-        }
+            if (Start < other.End && other.Start < End)
+            {
+                return 0;
+            }
 
-        public bool Overlaps(LiveRange range)
-        {
-            return Start < range.End && range.Start < End;
-        }
-
-        public bool Overlaps(int position)
-        {
-            return position >= Start && position < End;
-        }
-
-        public bool Equals(LiveRange range)
-        {
-            return range._data == _data;
-        }
-
-        public override bool Equals(object obj)
-        {
-            return obj is LiveRange range && Equals(range);
-        }
-
-        public static bool operator ==(LiveRange a, LiveRange b)
-        {
-            return a.Equals(b);
-        }
-
-        public static bool operator !=(LiveRange a, LiveRange b)
-        {
-            return !a.Equals(b);
-        }
-
-        public override int GetHashCode()
-        {
-            return HashCode.Combine((IntPtr)_data);
+            return Start.CompareTo(other.Start);
         }
 
         public override string ToString()
         {
-            return $"[{Start}, {End})";
+            return $"[{Start}, {End}[";
         }
     }
 }

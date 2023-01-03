@@ -1,4 +1,4 @@
-using Ryujinx.Graphics.Shader.Translation;
+using Ryujinx.Graphics.Shader.StructuredIr;
 using System;
 using System.Globalization;
 
@@ -8,21 +8,21 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
     {
         private const int MaxDecimal = 256;
 
-        public static bool TryFormat(int value, AggregateType dstType, out string formatted)
+        public static bool TryFormat(int value, VariableType dstType, out string formatted)
         {
-            if (dstType == AggregateType.FP32)
+            if (dstType == VariableType.F32 || dstType == VariableType.F64)
             {
                 return TryFormatFloat(BitConverter.Int32BitsToSingle(value), out formatted);
             }
-            else if (dstType == AggregateType.S32)
+            else if (dstType == VariableType.S32)
             {
                 formatted = FormatInt(value);
             }
-            else if (dstType == AggregateType.U32)
+            else if (dstType == VariableType.U32)
             {
                 formatted = FormatUint((uint)value);
             }
-            else if (dstType == AggregateType.Bool)
+            else if (dstType == VariableType.Bool)
             {
                 formatted = value != 0 ? "true" : "false";
             }
@@ -65,13 +65,13 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             return true;
         }
 
-        public static string FormatInt(int value, AggregateType dstType)
+        public static string FormatInt(int value, VariableType dstType)
         {
-            if (dstType == AggregateType.S32)
+            if (dstType == VariableType.S32)
             {
                 return FormatInt(value);
             }
-            else if (dstType == AggregateType.U32)
+            else if (dstType == VariableType.U32)
             {
                 return FormatUint((uint)value);
             }

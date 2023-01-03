@@ -9,7 +9,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm
     {
         public IStaticService(ServiceCtx context) { }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // CreateGeneralServiceOld() -> object<nn::nifm::detail::IGeneralService>
         public ResultCode CreateGeneralServiceOld(ServiceCtx context)
         {
@@ -18,7 +18,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm
             return ResultCode.Success;
         }
 
-        [CommandHipc(5)] // 3.0.0+
+        [Command(5)] // 3.0.0+
         // CreateGeneralService(u64, pid) -> object<nn::nifm::detail::IGeneralService>
         public ResultCode CreateGeneralService(ServiceCtx context)
         {

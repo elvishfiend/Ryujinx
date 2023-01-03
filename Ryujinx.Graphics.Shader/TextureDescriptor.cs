@@ -2,8 +2,6 @@ namespace Ryujinx.Graphics.Shader
 {
     public struct TextureDescriptor
     {
-        // New fields should be added to the end of the struct to keep disk shader cache compatibility.
-
         public readonly int Binding;
 
         public readonly SamplerType Type;

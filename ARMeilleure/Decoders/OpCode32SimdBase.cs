@@ -47,9 +47,6 @@ namespace ARMeilleure.Decoders
             throw new InvalidOperationException();
         }
 
-        protected OpCode32SimdBase(InstDescriptor inst, ulong address, int opCode, bool isThumb) : base(inst, address, opCode)
-        {
-            IsThumb = isThumb;
-        }
+        public OpCode32SimdBase(InstDescriptor inst, ulong address, int opCode) : base(inst, address, opCode) { }
     }
 }

@@ -1,12 +1,13 @@
 using ARMeilleure.Decoders;
 using ARMeilleure.IntermediateRepresentation;
+using ARMeilleure.Memory;
 using ARMeilleure.Translation;
 using ARMeilleure.Translation.PTC;
 using System;
 using System.Reflection;
 
 using static ARMeilleure.Instructions.InstEmitHelper;
-using static ARMeilleure.IntermediateRepresentation.OperandHelper;
+using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
 
 namespace ARMeilleure.Instructions
 {
@@ -122,6 +123,41 @@ namespace ARMeilleure.Instructions
                    context.CurrOp is OpCodeSimdMemSs);
         }
 
+        public static Operand EmitReadInt(ArmEmitterContext context, Operand address, int size)
+        {
+            Operand temp = context.AllocateLocal(size == 3 ? OperandType.I64 : OperandType.I32);
+
+            Operand lblSlowPath = Label();
+            Operand lblEnd      = Label();
+
+            Operand physAddr = EmitPtPointerLoad(context, address, lblSlowPath, write: false, size);
+
+            Operand value = default;
+
+            switch (size)
+            {
+                case 0: value = context.Load8 (physAddr);                  break;
+                case 1: value = context.Load16(physAddr);                  break;
+                case 2: value = context.Load  (OperandType.I32, physAddr); break;
+                case 3: value = context.Load  (OperandType.I64, physAddr); break;
+            }
+
+            context.Copy(temp, value);
+
+            if (!context.Memory.Type.IsHostMapped())
+            {
+                context.Branch(lblEnd);
+
+                context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
+
+                context.Copy(temp, EmitReadIntFallback(context, address, size));
+
+                context.MarkLabel(lblEnd);
+            }
+
+            return temp;
+        }
+
         private static void EmitReadInt(ArmEmitterContext context, Operand address, int rt, int size)
         {
             Operand lblSlowPath = Label();
@@ -129,7 +165,7 @@ namespace ARMeilleure.Instructions
 
             Operand physAddr = EmitPtPointerLoad(context, address, lblSlowPath, write: false, size);
 
-            Operand value = null;
+            Operand value = default;
 
             switch (size)
             {
@@ -141,13 +177,16 @@ namespace ARMeilleure.Instructions
 
             SetInt(context, rt, value);
 
-            context.Branch(lblEnd);
+            if (!context.Memory.Type.IsHostMapped())
+            {
+                context.Branch(lblEnd);
 
-            context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
+                context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
 
-            EmitReadIntFallback(context, address, rt, size);
+                EmitReadIntFallback(context, address, rt, size);
 
-            context.MarkLabel(lblEnd);
+                context.MarkLabel(lblEnd);
+            }
         }
 
         public static Operand EmitReadIntAligned(ArmEmitterContext context, Operand address, int size)
@@ -157,7 +196,7 @@ namespace ARMeilleure.Instructions
                 throw new ArgumentOutOfRangeException(nameof(size));
             }
 
-            Operand physAddr = EmitPtPointerLoad(context, address, null, write: false, size);
+            Operand physAddr = EmitPtPointerLoad(context, address, default, write: false, size);
 
             return size switch
             {
@@ -182,7 +221,7 @@ namespace ARMeilleure.Instructions
 
             Operand physAddr = EmitPtPointerLoad(context, address, lblSlowPath, write: false, size);
 
-            Operand value = null;
+            Operand value = default;
 
             switch (size)
             {
@@ -195,13 +234,16 @@ namespace ARMeilleure.Instructions
 
             context.Copy(GetVec(rt), value);
 
-            context.Branch(lblEnd);
+            if (!context.Memory.Type.IsHostMapped())
+            {
+                context.Branch(lblEnd);
 
-            context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
+                context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
 
-            EmitReadVectorFallback(context, address, vector, rt, elem, size);
+                EmitReadVectorFallback(context, address, vector, rt, elem, size);
 
-            context.MarkLabel(lblEnd);
+                context.MarkLabel(lblEnd);
+            }
         }
 
         private static Operand VectorCreate(ArmEmitterContext context, Operand value)
@@ -231,13 +273,16 @@ namespace ARMeilleure.Instructions
                 case 3: context.Store  (physAddr, value); break;
             }
 
-            context.Branch(lblEnd);
+            if (!context.Memory.Type.IsHostMapped())
+            {
+                context.Branch(lblEnd);
 
-            context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
+                context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
 
-            EmitWriteIntFallback(context, address, rt, size);
+                EmitWriteIntFallback(context, address, rt, size);
 
-            context.MarkLabel(lblEnd);
+                context.MarkLabel(lblEnd);
+            }
         }
 
         public static void EmitWriteIntAligned(ArmEmitterContext context, Operand address, Operand value, int size)
@@ -247,7 +292,7 @@ namespace ARMeilleure.Instructions
                 throw new ArgumentOutOfRangeException(nameof(size));
             }
 
-            Operand physAddr = EmitPtPointerLoad(context, address, null, write: true, size);
+            Operand physAddr = EmitPtPointerLoad(context, address, default, write: true, size);
 
             if (size < 3 && value.Type == OperandType.I64)
             {
@@ -291,17 +336,25 @@ namespace ARMeilleure.Instructions
                 case 4: context.Store  (physAddr, value);                                               break;
             }
 
-            context.Branch(lblEnd);
+            if (!context.Memory.Type.IsHostMapped())
+            {
+                context.Branch(lblEnd);
 
-            context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
+                context.MarkLabel(lblSlowPath, BasicBlockFrequency.Cold);
 
-            EmitWriteVectorFallback(context, address, rt, elem, size);
+                EmitWriteVectorFallback(context, address, rt, elem, size);
 
-            context.MarkLabel(lblEnd);
+                context.MarkLabel(lblEnd);
+            }
         }
 
         public static Operand EmitPtPointerLoad(ArmEmitterContext context, Operand address, Operand lblSlowPath, bool write, int size)
         {
+            if (context.Memory.Type.IsHostMapped())
+            {
+                return EmitHostMappedPointer(context, address);
+            }
+
             int ptLevelBits = context.Memory.AddressSpaceBits - PageBits;
             int ptLevelSize = 1 << ptLevelBits;
             int ptLevelMask = ptLevelSize - 1;
@@ -309,9 +362,9 @@ namespace ARMeilleure.Instructions
             Operand addrRotated = size != 0 ? context.RotateRight(address, Const(size)) : address;
             Operand addrShifted = context.ShiftRightUI(addrRotated, Const(PageBits - size));
 
-            Operand pte = Ptc.State == PtcState.Disabled
+            Operand pte = !context.HasPtc
                 ? Const(context.Memory.PageTablePointer.ToInt64())
-                : Const(context.Memory.PageTablePointer.ToInt64(), true, Ptc.PageTablePointerIndex);
+                : Const(context.Memory.PageTablePointer.ToInt64(), Ptc.PageTableSymbol);
 
             Operand pteOffset = context.BitwiseAnd(addrShifted, Const(addrShifted.Type, ptLevelMask));
 
@@ -330,7 +383,7 @@ namespace ARMeilleure.Instructions
             // If the VA is out of range, or not aligned to the access size, force PTE to 0 by masking it.
             pte = context.BitwiseAnd(pte, context.ShiftRightSI(context.Add(addrShifted, Const(-(long)ptLevelSize)), Const(63)));
 
-            if (lblSlowPath != null)
+            if (lblSlowPath != default)
             {
                 if (write)
                 {
@@ -380,7 +433,32 @@ namespace ARMeilleure.Instructions
             return context.Add(pte, pageOffset);
         }
 
+        public static Operand EmitHostMappedPointer(ArmEmitterContext context, Operand address)
+        {
+            if (address.Type == OperandType.I32)
+            {
+                address = context.ZeroExtend32(OperandType.I64, address);
+            }
+
+            if (context.Memory.Type == MemoryManagerType.HostMapped)
+            {
+                Operand mask = Const(ulong.MaxValue >> (64 - context.Memory.AddressSpaceBits));
+                address = context.BitwiseAnd(address, mask);
+            }
+
+            Operand baseAddr = !context.HasPtc
+                ? Const(context.Memory.PageTablePointer.ToInt64())
+                : Const(context.Memory.PageTablePointer.ToInt64(), Ptc.PageTableSymbol);
+
+            return context.Add(baseAddr, address);
+        }
+
         private static void EmitReadIntFallback(ArmEmitterContext context, Operand address, int rt, int size)
+        {
+            SetInt(context, rt, EmitReadIntFallback(context, address, size));
+        }
+
+        private static Operand EmitReadIntFallback(ArmEmitterContext context, Operand address, int size)
         {
             MethodInfo info = null;
 
@@ -392,7 +470,7 @@ namespace ARMeilleure.Instructions
                 case 3: info = typeof(NativeInterface).GetMethod(nameof(NativeInterface.ReadUInt64)); break;
             }
 
-            SetInt(context, rt, context.Call(info, address));
+            return context.Call(info, address);
         }
 
         private static void EmitReadVectorFallback(
@@ -467,7 +545,7 @@ namespace ARMeilleure.Instructions
                 case 4: info = typeof(NativeInterface).GetMethod(nameof(NativeInterface.WriteVector128)); break;
             }
 
-            Operand value = null;
+            Operand value = default;
 
             if (size < 4)
             {
@@ -509,11 +587,11 @@ namespace ARMeilleure.Instructions
         {
             switch (context.CurrOp)
             {
-                case OpCode32MemRsImm op: return GetMShiftedByImmediate(context, op, setCarry);
+                case IOpCode32MemRsImm op: return GetMShiftedByImmediate(context, op, setCarry);
 
-                case OpCode32MemReg op: return GetIntA32(context, op.Rm);
+                case IOpCode32MemReg op: return GetIntA32(context, op.Rm);
 
-                case OpCode32Mem op: return Const(op.Immediate);
+                case IOpCode32Mem op: return Const(op.Immediate);
 
                 case OpCode32SimdMemImm op: return Const(op.Immediate);
 
@@ -526,7 +604,7 @@ namespace ARMeilleure.Instructions
             return new InvalidOperationException($"Invalid OpCode type \"{opCode?.GetType().Name ?? "null"}\".");
         }
 
-        public static Operand GetMShiftedByImmediate(ArmEmitterContext context, OpCode32MemRsImm op, bool setCarry)
+        public static Operand GetMShiftedByImmediate(ArmEmitterContext context, IOpCode32MemRsImm op, bool setCarry)
         {
             Operand m = GetIntA32(context, op.Rm);
 

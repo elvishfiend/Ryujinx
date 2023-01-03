@@ -25,6 +25,8 @@ namespace ARMeilleure.Translation.Cache
         private static readonly object _lock = new object();
         private static bool _initialized;
 
+        public static IntPtr Base => _jitRegion.Pointer;
+
         public static void Initialize(IJitMemoryAllocator allocator)
         {
             if (_initialized) return;
@@ -37,7 +39,7 @@ namespace ARMeilleure.Translation.Cache
 
                 _cacheAllocator = new CacheMemoryAllocator(CacheSize);
 
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                if (OperatingSystem.IsWindows())
                 {
                     JitUnwindWindows.InstallFunctionTableHandler(_jitRegion.Pointer, CacheSize, _jitRegion.Pointer + Allocate(PageSize));
                 }

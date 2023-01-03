@@ -1,5 +1,3 @@
-﻿using OpenTK;
-using OpenTK.Graphics;
 using Ryujinx.Common;
 using System;
 using System.Collections.Generic;
@@ -7,31 +5,21 @@ using System.Threading;
 
 namespace Ryujinx.Graphics.OpenGL
 {
-    class BackgroundContextWorker : IDisposable
+    unsafe class BackgroundContextWorker : IDisposable
     {
         [ThreadStatic]
         public static bool InBackground;
-
-        private GameWindow _window;
-        private GraphicsContext _context;
         private Thread _thread;
         private bool _running;
 
         private AutoResetEvent _signal;
         private Queue<Action> _work;
         private ObjectPool<ManualResetEventSlim> _invokePool;
+        private readonly IOpenGLContext _backgroundContext;
 
-        public BackgroundContextWorker(IGraphicsContext baseContext)
+        public BackgroundContextWorker(IOpenGLContext backgroundContext)
         {
-            _window = new GameWindow(
-                100, 100, GraphicsMode.Default,
-                "Background Window", OpenTK.GameWindowFlags.FixedWindow, OpenTK.DisplayDevice.Default,
-                3, 3, GraphicsContextFlags.ForwardCompatible, baseContext, false);
-
-            _window.Visible = false;
-            _context = (GraphicsContext)_window.Context;
-            _context.MakeCurrent(null);
-
+            _backgroundContext = backgroundContext;
             _running = true;
 
             _signal = new AutoResetEvent(false);
@@ -45,7 +33,8 @@ namespace Ryujinx.Graphics.OpenGL
         private void Run()
         {
             InBackground = true;
-            _context.MakeCurrent(_window.WindowInfo);
+
+            _backgroundContext.MakeCurrent();
 
             while (_running)
             {
@@ -66,7 +55,7 @@ namespace Ryujinx.Graphics.OpenGL
                 }
             }
 
-            _window.Dispose();
+            _backgroundContext.Dispose();
         }
 
         public void Invoke(Action action)

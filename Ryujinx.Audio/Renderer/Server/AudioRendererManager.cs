@@ -1,27 +1,12 @@
-//
-// Copyright (c) 2019-2021 Ryujinx
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
-
 using Ryujinx.Audio.Integration;
 using Ryujinx.Audio.Renderer.Dsp;
 using Ryujinx.Audio.Renderer.Parameter;
 using Ryujinx.Common.Logging;
+using Ryujinx.Cpu;
 using Ryujinx.Memory;
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 
 namespace Ryujinx.Audio.Renderer.Server
@@ -77,16 +62,28 @@ namespace Ryujinx.Audio.Renderer.Server
         private IHardwareDeviceDriver _deviceDriver;
 
         /// <summary>
+        /// Tick source used to measure elapsed time.
+        /// </summary>
+        public ITickSource TickSource { get; }
+
+        /// <summary>
         /// The <see cref="AudioProcessor"/> instance associated to this manager.
         /// </summary>
         public AudioProcessor Processor { get; }
 
         /// <summary>
+        /// The dispose state.
+        /// </summary>
+        private int _disposeState;
+
+        /// <summary>
         /// Create a new <see cref="AudioRendererManager"/>.
         /// </summary>
-        public AudioRendererManager()
+        /// <param name="tickSource">Tick source used to measure elapsed time.</param>
+        public AudioRendererManager(ITickSource tickSource)
         {
             Processor = new AudioProcessor();
+            TickSource = tickSource;
             _sessionIds = new int[Constants.AudioRendererSessionCountMax];
             _sessions = new AudioRenderSystem[Constants.AudioRendererSessionCountMax];
             _activeSessionCount = 0;
@@ -180,12 +177,12 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <summary>
         /// Start the <see cref="AudioProcessor"/> and worker thread.
         /// </summary>
-        private void StartLocked()
+        private void StartLocked(float volume)
         {
             _isRunning = true;
 
             // TODO: virtual device mapping (IAudioDevice)
-            Processor.Start(_deviceDriver);
+            Processor.Start(_deviceDriver, volume);
 
             _workerThread = new Thread(SendCommands)
             {
@@ -209,6 +206,28 @@ namespace Ryujinx.Audio.Renderer.Server
         }
 
         /// <summary>
+        /// Stop sending commands to the <see cref="AudioProcessor"/> without stopping the worker thread.
+        /// </summary>
+        public void StopSendingCommands()
+        {
+            lock (_sessionLock)
+            {
+                foreach (AudioRenderSystem renderer in _sessions)
+                {
+                    renderer?.Disable();
+                }
+            }
+
+            lock (_audioProcessorLock)
+            {
+                if (_isRunning)
+                {
+                    StopLocked();
+                }
+            }
+        }
+
+        /// <summary>
         /// Worker main function. This is used to dispatch audio renderer commands to the <see cref="AudioProcessor"/>.
         /// </summary>
         private void SendCommands()
@@ -220,7 +239,7 @@ namespace Ryujinx.Audio.Renderer.Server
             {
                 lock (_sessionLock)
                 {
-                    foreach(AudioRenderSystem renderer in _sessions)
+                    foreach (AudioRenderSystem renderer in _sessions)
                     {
                         renderer?.SendCommands();
                     }
@@ -235,7 +254,7 @@ namespace Ryujinx.Audio.Renderer.Server
         /// Register a new <see cref="AudioRenderSystem"/>.
         /// </summary>
         /// <param name="renderer">The <see cref="AudioRenderSystem"/> to register.</param>
-        private void Register(AudioRenderSystem renderer)
+        private void Register(AudioRenderSystem renderer, float volume)
         {
             lock (_sessionLock)
             {
@@ -246,7 +265,7 @@ namespace Ryujinx.Audio.Renderer.Server
             {
                 if (!_isRunning)
                 {
-                    StartLocked();
+                    StartLocked(volume);
                 }
             }
         }
@@ -286,19 +305,40 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <param name="workBufferSize">The guest work buffer size.</param>
         /// <param name="processHandle">The process handle of the application.</param>
         /// <returns>A <see cref="ResultCode"/> reporting an error or a success.</returns>
-        public ResultCode OpenAudioRenderer(out AudioRenderSystem renderer, IVirtualMemoryManager memoryManager, ref AudioRendererConfiguration parameter, ulong appletResourceUserId, ulong workBufferAddress, ulong workBufferSize, uint processHandle)
+        public ResultCode OpenAudioRenderer(
+            out AudioRenderSystem renderer,
+            IVirtualMemoryManager memoryManager,
+            ref AudioRendererConfiguration parameter,
+            ulong appletResourceUserId,
+            ulong workBufferAddress,
+            ulong workBufferSize,
+            uint processHandle,
+            float volume)
         {
             int sessionId = AcquireSessionId();
 
             AudioRenderSystem audioRenderer = new AudioRenderSystem(this, _sessionsSystemEvent[sessionId]);
 
-            ResultCode result = audioRenderer.Initialize(ref parameter, processHandle, workBufferAddress, workBufferSize, sessionId, appletResourceUserId, memoryManager);
+            // TODO: Eventually, we should try to use the guest supplied work buffer instead of allocating
+            // our own. However, it was causing problems on some applications that would unmap the memory
+            // before the audio renderer was fully disposed.
+            Memory<byte> workBufferMemory = GC.AllocateArray<byte>((int)workBufferSize, pinned: true);
+
+            ResultCode result = audioRenderer.Initialize(
+                ref parameter,
+                processHandle,
+                workBufferMemory,
+                workBufferAddress,
+                workBufferSize,
+                sessionId,
+                appletResourceUserId,
+                memoryManager);
 
             if (result == ResultCode.Success)
             {
                 renderer = audioRenderer;
 
-                Register(renderer);
+                Register(renderer, volume);
             }
             else
             {
@@ -310,15 +350,46 @@ namespace Ryujinx.Audio.Renderer.Server
             return result;
         }
 
+        public float GetVolume()
+        {
+            if (Processor != null)
+            {
+                return Processor.GetVolume();
+            }
+
+            return 0f;
+        }
+
+        public void SetVolume(float volume)
+        {
+            Processor?.SetVolume(volume);
+        }
+
         public void Dispose()
         {
-            Dispose(true);
+            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) == 0)
+            {
+                Dispose(true);
+            }
         }
 
         protected virtual void Dispose(bool disposing)
         {
             if (disposing)
             {
+                // Clone the sessions array to dispose them outside the lock.
+                AudioRenderSystem[] sessions;
+
+                lock (_sessionLock)
+                {
+                    sessions = _sessions.ToArray();
+                }
+
+                foreach (AudioRenderSystem renderer in sessions)
+                {
+                    renderer?.Dispose();
+                }
+
                 lock (_audioProcessorLock)
                 {
                     if (_isRunning)

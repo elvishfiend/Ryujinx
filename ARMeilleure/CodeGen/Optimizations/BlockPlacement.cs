@@ -1,8 +1,7 @@
 ﻿using ARMeilleure.IntermediateRepresentation;
 using ARMeilleure.Translation;
 using System.Diagnostics;
-
-using static ARMeilleure.IntermediateRepresentation.OperandHelper;
+using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
 
 namespace ARMeilleure.CodeGen.Optimizations
 {
@@ -18,7 +17,7 @@ namespace ARMeilleure.CodeGen.Optimizations
             BasicBlock lastBlock = cfg.Blocks.Last;
 
             // Move cold blocks at the end of the list, so that they are emitted away from hot code.
-            for (block = cfg.Blocks.First; block != lastBlock; block = nextBlock)
+            for (block = cfg.Blocks.First; block != null; block = nextBlock)
             {
                 nextBlock = block.ListNext;
 
@@ -27,14 +26,21 @@ namespace ARMeilleure.CodeGen.Optimizations
                     cfg.Blocks.Remove(block);
                     cfg.Blocks.AddLast(block);
                 }
+
+                if (block == lastBlock)
+                {
+                    break;
+                }
             }
 
             for (block = cfg.Blocks.First; block != null; block = nextBlock)
             {
                 nextBlock = block.ListNext;
 
-                if (block.SuccessorCount == 2 && block.Operations.Last is Operation branchOp)
+                if (block.SuccessorsCount == 2)
                 {
+                    Operation branchOp = block.Operations.Last;
+
                     Debug.Assert(branchOp.Instruction == Instruction.BranchIf);
 
                     BasicBlock falseSucc = block.GetSuccessor(0);
@@ -59,7 +65,7 @@ namespace ARMeilleure.CodeGen.Optimizations
 
             if (update)
             {
-                cfg.Update(removeUnreachableBlocks: false);
+                cfg.Update();
             }
         }
     }

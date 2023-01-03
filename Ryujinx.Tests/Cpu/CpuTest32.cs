@@ -1,7 +1,8 @@
-﻿using ARMeilleure.State;
+﻿using ARMeilleure;
+using ARMeilleure.State;
 using ARMeilleure.Translation;
 using NUnit.Framework;
-using Ryujinx.Cpu;
+using Ryujinx.Cpu.Jit;
 using Ryujinx.Memory;
 using Ryujinx.Tests.Unicorn;
 using System;
@@ -32,14 +33,11 @@ namespace Ryujinx.Tests.Cpu
 
         private bool _usingMemory;
 
-        static CpuTest32()
+        [OneTimeSetUp]
+        public void OneTimeSetup()
         {
             _unicornAvailable = UnicornAArch32.IsAvailable();
-
-            if (!_unicornAvailable)
-            {
-                Console.WriteLine("WARNING: Could not find Unicorn.");
-            }
+            Assume.That(_unicornAvailable, "Unicorn is not available");
         }
 
         [SetUp]
@@ -49,13 +47,19 @@ namespace Ryujinx.Tests.Cpu
 
             _ram = new MemoryBlock(Size * 2);
             _memory = new MemoryManager(_ram, 1ul << 16);
+            _memory.IncrementReferenceCount();
             _memory.Map(CodeBaseAddress, 0, Size * 2);
 
             _context = CpuContext.CreateExecutionContext();
             _context.IsAarch32 = true;
             Translator.IsReadyForTranslation.Set();
 
-            _cpuContext = new CpuContext(_memory);
+            _cpuContext = new CpuContext(_memory, for64Bit: false);
+
+            // Prevent registering LCQ functions in the FunctionTable to avoid initializing and populating the table,
+            // which improves test durations.
+            Optimizations.AllowLcqInFunctionTable = false;
+            Optimizations.UseUnmanagedDispatchLoop = false;
 
             if (_unicornAvailable)
             {
@@ -69,7 +73,13 @@ namespace Ryujinx.Tests.Cpu
         [TearDown]
         public void Teardown()
         {
-            _memory.Dispose();
+            if (_unicornAvailable)
+            {
+                _unicornEmu.Dispose();
+                _unicornEmu = null;
+            }
+
+            _memory.DecrementReferenceCount();
             _context.Dispose();
             _ram.Dispose();
 
@@ -99,6 +109,18 @@ namespace Ryujinx.Tests.Cpu
             _currAddress += 4;
         }
 
+        protected void ThumbOpcode(ushort opcode)
+        {
+            _memory.Write(_currAddress, opcode);
+
+            if (_unicornAvailable)
+            {
+                _unicornEmu.MemoryWrite16(_currAddress, opcode);
+            }
+
+            _currAddress += 2;
+        }
+
         protected ExecutionContext GetContext() => _context;
 
         protected void SetContext(uint r0 = 0,
@@ -119,7 +141,8 @@ namespace Ryujinx.Tests.Cpu
                                   bool carry = false,
                                   bool zero = false,
                                   bool negative = false,
-                                  int fpscr = 0)
+                                  int fpscr = 0,
+                                  bool thumb = false)
         {
             _context.SetX(0, r0);
             _context.SetX(1, r1);
@@ -142,7 +165,9 @@ namespace Ryujinx.Tests.Cpu
             _context.SetPstateFlag(PState.ZFlag, zero);
             _context.SetPstateFlag(PState.NFlag, negative);
 
-            SetFpscr((uint)fpscr);
+            _context.Fpscr = (FPSCR)fpscr;
+
+            _context.SetPstateFlag(PState.TFlag, thumb);
 
             if (_unicornAvailable)
             {
@@ -168,6 +193,8 @@ namespace Ryujinx.Tests.Cpu
                 _unicornEmu.NegativeFlag = negative;
 
                 _unicornEmu.Fpscr = fpscr;
+
+                _unicornEmu.ThumbFlag = thumb;
             }
         }
 
@@ -209,6 +236,86 @@ namespace Ryujinx.Tests.Cpu
             ExecuteOpcodes(runUnicorn);
 
             return GetContext();
+        }
+
+        protected ExecutionContext SingleThumbOpcode(ushort opcode,
+                                                     uint r0 = 0,
+                                                     uint r1 = 0,
+                                                     uint r2 = 0,
+                                                     uint r3 = 0,
+                                                     uint sp = 0,
+                                                     bool saturation = false,
+                                                     bool overflow = false,
+                                                     bool carry = false,
+                                                     bool zero = false,
+                                                     bool negative = false,
+                                                     int fpscr = 0,
+                                                     bool runUnicorn = true)
+        {
+            ThumbOpcode(opcode);
+            ThumbOpcode(0x4770); // BX LR
+            SetContext(r0, r1, r2, r3, sp, default, default, default, default, default, default, default, default, saturation, overflow, carry, zero, negative, fpscr, thumb: true);
+            ExecuteOpcodes(runUnicorn);
+
+            return GetContext();
+        }
+
+        public void RunPrecomputedTestCase(PrecomputedThumbTestCase test)
+        {
+            foreach (ushort instruction in test.Instructions)
+            {
+                ThumbOpcode(instruction);
+            }
+
+            for (int i = 0; i < 15; i++)
+            {
+                GetContext().SetX(i, test.StartRegs[i]);
+            }
+
+            uint startCpsr = test.StartRegs[15];
+            for (int i = 0; i < 32; i++)
+            {
+                GetContext().SetPstateFlag((PState)i, (startCpsr & (1u << i)) != 0);
+            }
+
+            ExecuteOpcodes(runUnicorn: false);
+
+            for (int i = 0; i < 15; i++)
+            {
+                Assert.That(GetContext().GetX(i), Is.EqualTo(test.FinalRegs[i]));
+            }
+
+            uint finalCpsr = test.FinalRegs[15];
+            Assert.That(GetContext().Pstate, Is.EqualTo(finalCpsr));
+        }
+
+        public void RunPrecomputedTestCase(PrecomputedMemoryThumbTestCase test)
+        {
+            byte[] testMem = new byte[Size];
+
+            for (ulong i = 0; i < Size; i += 2)
+            {
+                testMem[i + 0] = (byte)((i + DataBaseAddress) >> 0);
+                testMem[i + 1] = (byte)((i + DataBaseAddress) >> 8);
+            }
+
+            SetWorkingMemory(0, testMem);
+
+            RunPrecomputedTestCase(new PrecomputedThumbTestCase(){
+                Instructions = test.Instructions,
+                StartRegs = test.StartRegs,
+                FinalRegs = test.FinalRegs,
+            });
+
+            foreach (var delta in test.MemoryDelta)
+            {
+                testMem[delta.Address - DataBaseAddress + 0] = (byte)(delta.Value >> 0);
+                testMem[delta.Address - DataBaseAddress + 1] = (byte)(delta.Value >> 8);
+            }
+
+            byte[] mem = _memory.GetSpan(DataBaseAddress, (int)Size).ToArray();
+
+            Assert.That(mem, Is.EqualTo(testMem), "testmem");
         }
 
         protected void SetWorkingMemory(uint offset, byte[] data)
@@ -352,6 +459,10 @@ namespace Ryujinx.Tests.Cpu
 
             Assert.Multiple(() =>
             {
+                Assert.That(_context.GetPstateFlag(PState.GE0Flag), Is.EqualTo((_unicornEmu.CPSR & (1u << 16)) != 0), "GE0Flag");
+                Assert.That(_context.GetPstateFlag(PState.GE1Flag), Is.EqualTo((_unicornEmu.CPSR & (1u << 17)) != 0), "GE1Flag");
+                Assert.That(_context.GetPstateFlag(PState.GE2Flag), Is.EqualTo((_unicornEmu.CPSR & (1u << 18)) != 0), "GE2Flag");
+                Assert.That(_context.GetPstateFlag(PState.GE3Flag), Is.EqualTo((_unicornEmu.CPSR & (1u << 19)) != 0), "GE3Flag");
                 Assert.That(_context.GetPstateFlag(PState.QFlag), Is.EqualTo(_unicornEmu.QFlag), "QFlag");
                 Assert.That(_context.GetPstateFlag(PState.VFlag), Is.EqualTo(_unicornEmu.OverflowFlag), "VFlag");
                 Assert.That(_context.GetPstateFlag(PState.CFlag), Is.EqualTo(_unicornEmu.CarryFlag), "CFlag");
@@ -359,7 +470,7 @@ namespace Ryujinx.Tests.Cpu
                 Assert.That(_context.GetPstateFlag(PState.NFlag), Is.EqualTo(_unicornEmu.NegativeFlag), "NFlag");
             });
 
-            Assert.That((int)GetFpscr() & (int)fpsrMask, Is.EqualTo(_unicornEmu.Fpscr & (int)fpsrMask), "Fpscr");
+            Assert.That((int)_context.Fpscr & (int)fpsrMask, Is.EqualTo(_unicornEmu.Fpscr & (int)fpsrMask), "Fpscr");
 
             if (_usingMemory)
             {
@@ -541,29 +652,6 @@ namespace Ryujinx.Tests.Cpu
             while ((rnd & 0x000FFFFFFFFFFFFFul) == 0ul);
 
             return rnd & 0x800FFFFFFFFFFFFFul;
-        }
-
-        private uint GetFpscr()
-        {
-            uint fpscr = (uint)(_context.Fpsr & FPSR.A32Mask & ~FPSR.Nzcv) | (uint)(_context.Fpcr & FPCR.A32Mask);
-
-            fpscr |= _context.GetFPstateFlag(FPState.NFlag) ? (1u << (int)FPState.NFlag) : 0;
-            fpscr |= _context.GetFPstateFlag(FPState.ZFlag) ? (1u << (int)FPState.ZFlag) : 0;
-            fpscr |= _context.GetFPstateFlag(FPState.CFlag) ? (1u << (int)FPState.CFlag) : 0;
-            fpscr |= _context.GetFPstateFlag(FPState.VFlag) ? (1u << (int)FPState.VFlag) : 0;
-
-            return fpscr;
-        }
-
-        private void SetFpscr(uint fpscr)
-        {
-            _context.Fpsr = FPSR.A32Mask & (FPSR)fpscr;
-            _context.Fpcr = FPCR.A32Mask & (FPCR)fpscr;
-
-            _context.SetFPstateFlag(FPState.NFlag, (fpscr & (1u << (int)FPState.NFlag)) != 0);
-            _context.SetFPstateFlag(FPState.ZFlag, (fpscr & (1u << (int)FPState.ZFlag)) != 0);
-            _context.SetFPstateFlag(FPState.CFlag, (fpscr & (1u << (int)FPState.CFlag)) != 0);
-            _context.SetFPstateFlag(FPState.VFlag, (fpscr & (1u << (int)FPState.VFlag)) != 0);
         }
     }
 }

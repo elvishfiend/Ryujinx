@@ -24,7 +24,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             _permissionLevel = permissionLevel;
         }
 
-        [Command(0)]
+        [CommandHipc(0)]
         // GetCompletionEvent() -> handle<copy>
         public ResultCode GetCompletionEvent(ServiceCtx context)
         {
@@ -43,7 +43,17 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             return ResultCode.Success;
         }
 
-        [Command(10100)]
+        [CommandHipc(1)]
+        // nn::friends::Cancel()
+        public ResultCode Cancel(ServiceCtx context)
+        {
+            // TODO: Original service sets an internal field to 1 here. Determine usage.
+            Logger.Stub?.PrintStub(LogClass.ServiceFriend);
+
+            return ResultCode.Success;
+        }
+
+        [CommandHipc(10100)]
         // nn::friends::GetFriendListIds(int offset, nn::account::Uid userId, nn::friends::detail::ipc::SizedFriendFilter friendFilter, ulong pidPlaceHolder, pid)
         // -> int outCount, array<nn::account::NetworkServiceAccountId, 0xa>
         public ResultCode GetFriendListIds(ServiceCtx context)
@@ -82,7 +92,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             return ResultCode.Success;
         }
 
-        [Command(10101)]
+        [CommandHipc(10101)]
         // nn::friends::GetFriendList(int offset, nn::account::Uid userId, nn::friends::detail::ipc::SizedFriendFilter friendFilter, ulong pidPlaceHolder, pid)
         // -> int outCount, array<nn::friends::detail::FriendImpl, 0x6>
         public ResultCode GetFriendList(ServiceCtx context)
@@ -92,7 +102,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             // Padding
             context.RequestData.ReadInt32();
 
-            UserId       userId   = context.RequestData.ReadStruct<UserId>();
+            UserId       userId = context.RequestData.ReadStruct<UserId>();
             FriendFilter filter = context.RequestData.ReadStruct<FriendFilter>();
 
             // Pid placeholder
@@ -120,7 +130,46 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             return ResultCode.Success;
         }
 
-        [Command(10400)]
+        [CommandHipc(10120)] // 10.0.0+
+        // nn::friends::IsFriendListCacheAvailable(nn::account::Uid userId) -> bool
+        public ResultCode IsFriendListCacheAvailable(ServiceCtx context)
+        {
+            UserId userId = context.RequestData.ReadStruct<UserId>();
+
+            if (userId.IsNull)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            // TODO: Service mount the friends:/ system savedata and try to load friend.cache file, returns true if exists, false otherwise.
+            // NOTE: If no cache is available, guest then calls nn::friends::EnsureFriendListAvailable, we can avoid that by faking the cache check.
+            context.ResponseData.Write(true);
+
+            // TODO: Since we don't support friend features, it's fine to stub it for now.
+            Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = userId.ToString() });
+
+            return ResultCode.Success;
+        }
+
+        [CommandHipc(10121)] // 10.0.0+
+        // nn::friends::EnsureFriendListAvailable(nn::account::Uid userId)
+        public ResultCode EnsureFriendListAvailable(ServiceCtx context)
+        {
+            UserId userId = context.RequestData.ReadStruct<UserId>();
+
+            if (userId.IsNull)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            // TODO: Service mount the friends:/ system savedata and create a friend.cache file for the given user id.
+            //       Since we don't support friend features, it's fine to stub it for now.
+            Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = userId.ToString() });
+
+            return ResultCode.Success;
+        }
+
+        [CommandHipc(10400)]
         // nn::friends::GetBlockedUserListIds(int offset, nn::account::Uid userId) -> (u32, buffer<nn::account::NetworkServiceAccountId, 0xa>)
         public ResultCode GetBlockedUserListIds(ServiceCtx context)
         {
@@ -139,7 +188,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             return ResultCode.Success;
         }
 
-        [Command(10600)]
+        [CommandHipc(10600)]
         // nn::friends::DeclareOpenOnlinePlaySession(nn::account::Uid userId)
         public ResultCode DeclareOpenOnlinePlaySession(ServiceCtx context)
         {
@@ -150,17 +199,14 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
                 return ResultCode.InvalidArgument;
             }
 
-            if (context.Device.System.State.Account.TryGetUser(userId, out UserProfile profile))
-            {
-                profile.OnlinePlayState = AccountState.Open;
-            }
+            context.Device.System.AccountManager.OpenUserOnlinePlay(userId);
 
-            Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = userId.ToString(), profile.OnlinePlayState });
+            Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = userId.ToString() });
 
             return ResultCode.Success;
         }
 
-        [Command(10601)]
+        [CommandHipc(10601)]
         // nn::friends::DeclareCloseOnlinePlaySession(nn::account::Uid userId)
         public ResultCode DeclareCloseOnlinePlaySession(ServiceCtx context)
         {
@@ -171,17 +217,14 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
                 return ResultCode.InvalidArgument;
             }
 
-            if (context.Device.System.State.Account.TryGetUser(userId, out UserProfile profile))
-            {
-                profile.OnlinePlayState = AccountState.Closed;
-            }
+            context.Device.System.AccountManager.CloseUserOnlinePlay(userId);
 
-            Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = userId.ToString(), profile.OnlinePlayState });
+            Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = userId.ToString() });
 
             return ResultCode.Success;
         }
 
-        [Command(10610)]
+        [CommandHipc(10610)]
         // nn::friends::UpdateUserPresence(nn::account::Uid, u64, pid, buffer<nn::friends::detail::UserPresenceImpl, 0x19>)
         public ResultCode UpdateUserPresence(ServiceCtx context)
         {
@@ -190,40 +233,31 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             // Pid placeholder
             context.RequestData.ReadInt64();
 
-            long position = context.Request.PtrBuff[0].Position;
-            long size     = context.Request.PtrBuff[0].Size;
+            ulong position = context.Request.PtrBuff[0].Position;
+            ulong size     = context.Request.PtrBuff[0].Size;
 
-            byte[] bufferContent = new byte[size];
-
-            context.Memory.Read((ulong)position, bufferContent);
+            ReadOnlySpan<UserPresence> userPresenceInputArray = MemoryMarshal.Cast<byte, UserPresence>(context.Memory.GetSpan(position, (int)size));
 
             if (uuid.IsNull)
             {
                 return ResultCode.InvalidArgument;
             }
 
-            int elementCount = bufferContent.Length / Marshal.SizeOf<UserPresence>();
-
-            using (BinaryReader bufferReader = new BinaryReader(new MemoryStream(bufferContent)))
-            {
-                UserPresence[] userPresenceInputArray = bufferReader.ReadStructArray<UserPresence>(elementCount);
-
-                Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = uuid.ToString(), userPresenceInputArray });
-            }
+            Logger.Stub?.PrintStub(LogClass.ServiceFriend, new { UserId = uuid.ToString(), userPresenceInputArray = userPresenceInputArray.ToArray() });
 
             return ResultCode.Success;
         }
 
-        [Command(10700)]
+        [CommandHipc(10700)]
         // nn::friends::GetPlayHistoryRegistrationKey(b8 unknown, nn::account::Uid) -> buffer<nn::friends::PlayHistoryRegistrationKey, 0x1a>
         public ResultCode GetPlayHistoryRegistrationKey(ServiceCtx context)
         {
             bool   unknownBool = context.RequestData.ReadBoolean();
             UserId userId      = context.RequestData.ReadStruct<UserId>();
 
-            context.Response.PtrBuff[0] = context.Response.PtrBuff[0].WithSize(0x40L);
+            context.Response.PtrBuff[0] = context.Response.PtrBuff[0].WithSize(0x40UL);
 
-            long bufferPosition  = context.Request.RecvListBuff[0].Position;
+            ulong bufferPosition = context.Request.RecvListBuff[0].Position;
 
             if (userId.IsNull)
             {
@@ -233,9 +267,8 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             // NOTE: Calls nn::friends::detail::service::core::PlayHistoryManager::GetInstance and stores the instance.
 
             byte[] randomBytes = new byte[8];
-            Random random      = new Random();
 
-            random.NextBytes(randomBytes);
+            Random.Shared.NextBytes(randomBytes);
 
             // NOTE: Calls nn::friends::detail::service::core::UuidManager::GetInstance and stores the instance.
             //       Then call nn::friends::detail::service::core::AccountStorageManager::GetInstance and store the instance.
@@ -244,7 +277,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
 
             Array16<byte> randomGuid = new Array16<byte>();
 
-            Guid.NewGuid().ToByteArray().AsSpan().CopyTo(randomGuid.ToSpan());
+            Guid.NewGuid().ToByteArray().AsSpan().CopyTo(randomGuid.AsSpan());
 
             PlayHistoryRegistrationKey playHistoryRegistrationKey = new PlayHistoryRegistrationKey
             {
@@ -271,13 +304,13 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
 
             */
 
-            context.Memory.Write((ulong)bufferPosition,        playHistoryRegistrationKeyBuffer);
-            context.Memory.Write((ulong)bufferPosition + 0x20, new byte[0x20]); // HmacHash
+            context.Memory.Write(bufferPosition,        playHistoryRegistrationKeyBuffer);
+            context.Memory.Write(bufferPosition + 0x20, new byte[0x20]); // HmacHash
 
             return ResultCode.Success;
         }
 
-        [Command(10702)]
+        [CommandHipc(10702)]
         // nn::friends::AddPlayHistory(nn::account::Uid, u64, pid, buffer<nn::friends::PlayHistoryRegistrationKey, 0x19>, buffer<nn::friends::InAppScreenName, 0x19>, buffer<nn::friends::InAppScreenName, 0x19>)
         public ResultCode AddPlayHistory(ServiceCtx context)
         {
@@ -285,16 +318,16 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
 
             // Pid placeholder
             context.RequestData.ReadInt64();
-            long pid = context.Process.Pid;
+            ulong pid = context.Request.HandleDesc.PId;
 
-            long playHistoryRegistrationKeyPosition = context.Request.PtrBuff[0].Position;
-            long PlayHistoryRegistrationKeySize     = context.Request.PtrBuff[0].Size;
+            ulong playHistoryRegistrationKeyPosition = context.Request.PtrBuff[0].Position;
+            ulong PlayHistoryRegistrationKeySize     = context.Request.PtrBuff[0].Size;
 
-            long inAppScreenName1Position = context.Request.PtrBuff[1].Position;
-            long inAppScreenName1Size     = context.Request.PtrBuff[1].Size;
+            ulong inAppScreenName1Position = context.Request.PtrBuff[1].Position;
+            ulong inAppScreenName1Size     = context.Request.PtrBuff[1].Size;
 
-            long inAppScreenName2Position = context.Request.PtrBuff[2].Position;
-            long inAppScreenName2Size     = context.Request.PtrBuff[2].Size;
+            ulong inAppScreenName2Position = context.Request.PtrBuff[2].Position;
+            ulong inAppScreenName2Size     = context.Request.PtrBuff[2].Size;
 
             if (userId.IsNull || inAppScreenName1Size > 0x48 || inAppScreenName2Size > 0x48)
             {

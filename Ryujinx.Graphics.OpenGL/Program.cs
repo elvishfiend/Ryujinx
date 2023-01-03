@@ -1,11 +1,10 @@
 using OpenTK.Graphics.OpenGL;
 using Ryujinx.Common.Logging;
 using Ryujinx.Graphics.GAL;
-using Ryujinx.Graphics.Shader.CodeGen.Glsl;
+using Ryujinx.Graphics.Shader;
+using Ryujinx.Graphics.Shader.Translation;
 using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Ryujinx.Graphics.OpenGL
 {
@@ -13,108 +12,85 @@ namespace Ryujinx.Graphics.OpenGL
     {
         public int Handle { get; private set; }
 
-        public int FragmentIsBgraUniform { get; }
-        public int FragmentRenderScaleUniform { get; }
-        public int ComputeRenderScaleUniform { get; }
+        public bool IsLinked
+        {
+            get
+            {
+                if (_status == ProgramLinkStatus.Incomplete)
+                {
+                    CheckProgramLink(true);
+                }
 
-        public bool IsLinked { get; private set; }
+                return _status == ProgramLinkStatus.Success;
+            }
+        }
 
-        public Program(IShader[] shaders, TransformFeedbackDescriptor[] transformFeedbackDescriptors)
+        private ProgramLinkStatus _status = ProgramLinkStatus.Incomplete;
+        private int[] _shaderHandles;
+
+        public bool HasFragmentShader;
+        public int FragmentOutputMap { get; }
+
+        public Program(ShaderSource[] shaders, int fragmentOutputMap)
         {
             Handle = GL.CreateProgram();
 
             GL.ProgramParameter(Handle, ProgramParameterName.ProgramBinaryRetrievableHint, 1);
 
+            _shaderHandles = new int[shaders.Length];
+
             for (int index = 0; index < shaders.Length; index++)
             {
-                int shaderHandle = ((Shader)shaders[index]).Handle;
+                ShaderSource shader = shaders[index];
 
-                GL.AttachShader(Handle, shaderHandle);
-            }
-
-            if (transformFeedbackDescriptors != null)
-            {
-                List<string> varyings = new List<string>();
-
-                int cbi = 0;
-
-                foreach (var tfd in transformFeedbackDescriptors.OrderBy(x => x.BufferIndex))
+                if (shader.Stage == ShaderStage.Fragment)
                 {
-                    if (tfd.VaryingLocations.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    while (cbi < tfd.BufferIndex)
-                    {
-                        varyings.Add("gl_NextBuffer");
-
-                        cbi++;
-                    }
-
-                    int stride = Math.Min(128 * 4, (tfd.Stride + 3) & ~3);
-
-                    int j = 0;
-
-                    for (; j < tfd.VaryingLocations.Length && j * 4 < stride; j++)
-                    {
-                        byte location = tfd.VaryingLocations[j];
-
-                        varyings.Add(Varying.GetName(location) ?? "gl_SkipComponents1");
-
-                        j += Varying.GetSize(location) - 1;
-                    }
-
-                    int feedbackBytes = j * 4;
-
-                    while (feedbackBytes < stride)
-                    {
-                        int bytes = Math.Min(16, stride - feedbackBytes);
-
-                        varyings.Add($"gl_SkipComponents{(bytes / 4)}");
-
-                        feedbackBytes += bytes;
-                    }
+                    HasFragmentShader = true;
                 }
 
-                GL.TransformFeedbackVaryings(Handle, varyings.Count, varyings.ToArray(), TransformFeedbackMode.InterleavedAttribs);
+                int shaderHandle = GL.CreateShader(shader.Stage.Convert());
+
+                switch (shader.Language)
+                {
+                    case TargetLanguage.Glsl:
+                        GL.ShaderSource(shaderHandle, shader.Code);
+                        GL.CompileShader(shaderHandle);
+                        break;
+                    case TargetLanguage.Spirv:
+                        GL.ShaderBinary(1, ref shaderHandle, (BinaryFormat)All.ShaderBinaryFormatSpirVArb, shader.BinaryCode, shader.BinaryCode.Length);
+                        GL.SpecializeShader(shaderHandle, "main", 0, (int[])null, (int[])null);
+                        break;
+                }
+
+                GL.AttachShader(Handle, shaderHandle);
+
+                _shaderHandles[index] = shaderHandle;
             }
 
             GL.LinkProgram(Handle);
 
-            for (int index = 0; index < shaders.Length; index++)
-            {
-                int shaderHandle = ((Shader)shaders[index]).Handle;
-
-                GL.DetachShader(Handle, shaderHandle);
-            }
-
-            CheckProgramLink();
-
-            FragmentIsBgraUniform = GL.GetUniformLocation(Handle, "is_bgra");
-            FragmentRenderScaleUniform = GL.GetUniformLocation(Handle, "fp_renderScale");
-            ComputeRenderScaleUniform = GL.GetUniformLocation(Handle, "cp_renderScale");
+            FragmentOutputMap = fragmentOutputMap;
         }
 
-        public Program(ReadOnlySpan<byte> code)
+        public Program(ReadOnlySpan<byte> code, bool hasFragmentShader, int fragmentOutputMap)
         {
-            BinaryFormat binaryFormat = (BinaryFormat)BinaryPrimitives.ReadInt32LittleEndian(code.Slice(code.Length - 4, 4));
-
             Handle = GL.CreateProgram();
 
-            unsafe
+            if (code.Length >= 4)
             {
-                fixed (byte* ptr = code)
+                BinaryFormat binaryFormat = (BinaryFormat)BinaryPrimitives.ReadInt32LittleEndian(code.Slice(code.Length - 4, 4));
+
+                unsafe
                 {
-                    GL.ProgramBinary(Handle, binaryFormat, (IntPtr)ptr, code.Length - 4);
+                    fixed (byte* ptr = code)
+                    {
+                        GL.ProgramBinary(Handle, binaryFormat, (IntPtr)ptr, code.Length - 4);
+                    }
                 }
             }
 
-            CheckProgramLink();
-
-            FragmentIsBgraUniform = GL.GetUniformLocation(Handle, "is_bgra");
-            FragmentRenderScaleUniform = GL.GetUniformLocation(Handle, "fp_renderScale");
-            ComputeRenderScaleUniform = GL.GetUniformLocation(Handle, "cp_renderScale");
+            HasFragmentShader = hasFragmentShader;
+            FragmentOutputMap = fragmentOutputMap;
         }
 
         public void Bind()
@@ -122,19 +98,33 @@ namespace Ryujinx.Graphics.OpenGL
             GL.UseProgram(Handle);
         }
 
-        private void CheckProgramLink()
+        public ProgramLinkStatus CheckProgramLink(bool blocking)
         {
+            if (!blocking && HwCapabilities.SupportsParallelShaderCompile)
+            {
+                GL.GetProgram(Handle, (GetProgramParameterName)ArbParallelShaderCompile.CompletionStatusArb, out int completed);
+
+                if (completed == 0)
+                {
+                    return ProgramLinkStatus.Incomplete;
+                }
+            }
+
             GL.GetProgram(Handle, GetProgramParameterName.LinkStatus, out int status);
+            DeleteShaders();
 
             if (status == 0)
             {
                 // Use GL.GetProgramInfoLog(Handle), it may be too long to print on the log.
+                _status = ProgramLinkStatus.Failure;
                 Logger.Debug?.Print(LogClass.Gpu, "Shader linking failed.");
             }
             else
             {
-                IsLinked = true;
+                _status = ProgramLinkStatus.Success;
             }
+
+            return _status;
         }
 
         public byte[] GetBinary()
@@ -145,15 +135,30 @@ namespace Ryujinx.Graphics.OpenGL
 
             GL.GetProgramBinary(Handle, size, out _, out BinaryFormat binFormat, data);
 
-            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan().Slice(size, 4), (int)binFormat);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(size, 4), (int)binFormat);
 
             return data;
+        }
+
+        private void DeleteShaders()
+        {
+            if (_shaderHandles != null)
+            {
+                foreach (int shaderHandle in _shaderHandles)
+                {
+                    GL.DetachShader(Handle, shaderHandle);
+                    GL.DeleteShader(shaderHandle);
+                }
+
+                _shaderHandles = null;
+            }
         }
 
         public void Dispose()
         {
             if (Handle != 0)
             {
+                DeleteShaders();
                 GL.DeleteProgram(Handle);
 
                 Handle = 0;

@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
 {
-    class INotificationService : IpcService, IDisposable
+    class INotificationService : DisposableIpcService
     {
         private readonly UserId                       _userId;
         private readonly FriendServicePermissionLevel _permissionLevel;
@@ -37,7 +37,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             NotificationEventHandler.Instance.RegisterNotificationService(this);
         }
 
-        [Command(0)] //2.0.0+
+        [CommandHipc(0)] //2.0.0+
         // nn::friends::detail::ipc::INotificationService::GetEvent() -> handle<copy>
         public ResultCode GetEvent(ServiceCtx context)
         {
@@ -54,7 +54,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             return ResultCode.Success;
         }
 
-        [Command(1)] //2.0.0+
+        [CommandHipc(1)] //2.0.0+
         // nn::friends::detail::ipc::INotificationService::Clear()
         public ResultCode Clear(ServiceCtx context)
         {
@@ -69,7 +69,7 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             return ResultCode.Success;
         }
 
-        [Command(2)] // 2.0.0+
+        [CommandHipc(2)] // 2.0.0+
         // nn::friends::detail::ipc::INotificationService::Pop() -> nn::friends::detail::ipc::SizedNotificationInfo
         public ResultCode Pop(ServiceCtx context)
         {
@@ -167,9 +167,12 @@ namespace Ryujinx.HLE.HOS.Services.Friend.ServiceCreator
             }
         }
 
-        public void Dispose()
+        protected override void Dispose(bool isDisposing)
         {
-            NotificationEventHandler.Instance.UnregisterNotificationService(this);
+            if (isDisposing)
+            {
+                NotificationEventHandler.Instance.UnregisterNotificationService(this);
+            }
         }
     }
 }

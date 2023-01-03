@@ -4,7 +4,6 @@ using Ryujinx.HLE.HOS.Kernel;
 using Ryujinx.HLE.HOS.Kernel.Common;
 using Ryujinx.HLE.HOS.Kernel.Ipc;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,29 +13,29 @@ namespace Ryujinx.HLE.HOS.Services.Sm
 {
     class IUserInterface : IpcService
     {
-        private Dictionary<string, Type> _services;
+        private static Dictionary<string, Type> _services;
 
-        private readonly ConcurrentDictionary<string, KPort> _registeredServices;
-
+        private readonly SmRegistry _registry;
         private readonly ServerBase _commonServer;
 
         private bool _isInitialized;
 
-        public IUserInterface(KernelContext context)
+        public IUserInterface(KernelContext context, SmRegistry registry)
         {
-            _registeredServices = new ConcurrentDictionary<string, KPort>();
+            _commonServer = new ServerBase(context, "CommonServer");
+            _registry = registry;
+        }
 
+        static IUserInterface()
+        {
             _services = Assembly.GetExecutingAssembly().GetTypes()
                 .SelectMany(type => type.GetCustomAttributes(typeof(ServiceAttribute), true)
                 .Select(service => (((ServiceAttribute)service).Name, type)))
                 .ToDictionary(service => service.Name, service => service.type);
-
-            TrySetServer(new ServerBase(context, "SmServer") { SmObject = this });
-
-            _commonServer = new ServerBase(context, "CommonServer");
         }
 
-        [Command(0)]
+        [CommandHipc(0)]
+        [CommandTipc(0)] // 12.0.0+
         // Initialize(pid, u64 reserved)
         public ResultCode Initialize(ServiceCtx context)
         {
@@ -45,8 +44,16 @@ namespace Ryujinx.HLE.HOS.Services.Sm
             return ResultCode.Success;
         }
 
-        [Command(1)]
+        [CommandTipc(1)] // 12.0.0+
         // GetService(ServiceName name) -> handle<move, session>
+        public ResultCode GetServiceTipc(ServiceCtx context)
+        {
+            context.Response.HandleDesc = IpcHandleDesc.MakeMove(0);
+
+            return GetService(context);
+        }
+
+        [CommandHipc(1)]
         public ResultCode GetService(ServiceCtx context)
         {
             if (!_isInitialized)
@@ -63,7 +70,7 @@ namespace Ryujinx.HLE.HOS.Services.Sm
 
             KSession session = new KSession(context.Device.System.KernelContext);
 
-            if (_registeredServices.TryGetValue(name, out KPort port))
+            if (_registry.TryGetService(name, out KPort port))
             {
                 KernelResult result = port.EnqueueIncomingSession(session.ServerSession);
 
@@ -71,6 +78,15 @@ namespace Ryujinx.HLE.HOS.Services.Sm
                 {
                     throw new InvalidOperationException($"Session enqueue on port returned error \"{result}\".");
                 }
+
+                if (context.Process.HandleTable.GenerateHandle(session.ClientSession, out int handle) != KernelResult.Success)
+                {
+                    throw new InvalidOperationException("Out of handles!");
+                }
+
+                session.ClientSession.DecrementReferenceCount();
+
+                context.Response.HandleDesc = IpcHandleDesc.MakeMove(handle);
             }
             else
             {
@@ -87,7 +103,7 @@ namespace Ryujinx.HLE.HOS.Services.Sm
                 }
                 else
                 {
-                    if (ServiceConfiguration.IgnoreMissingServices)
+                    if (context.Device.Configuration.IgnoreMissingServices)
                     {
                         Logger.Warning?.Print(LogClass.Service, $"Missing service {name} ignored");
                     }
@@ -96,24 +112,24 @@ namespace Ryujinx.HLE.HOS.Services.Sm
                         throw new NotImplementedException(name);
                     }
                 }
+
+                if (context.Process.HandleTable.GenerateHandle(session.ClientSession, out int handle) != KernelResult.Success)
+                {
+                    throw new InvalidOperationException("Out of handles!");
+                }
+
+                session.ServerSession.DecrementReferenceCount();
+                session.ClientSession.DecrementReferenceCount();
+
+                context.Response.HandleDesc = IpcHandleDesc.MakeMove(handle);
             }
-
-            if (context.Process.HandleTable.GenerateHandle(session.ClientSession, out int handle) != KernelResult.Success)
-            {
-                throw new InvalidOperationException("Out of handles!");
-            }
-
-            session.ServerSession.DecrementReferenceCount();
-            session.ClientSession.DecrementReferenceCount();
-
-            context.Response.HandleDesc = IpcHandleDesc.MakeMove(handle);
 
             return ResultCode.Success;
         }
 
-        [Command(2)]
-        // RegisterService(ServiceName name, u8, u32 maxHandles) -> handle<move, port>
-        public ResultCode RegisterService(ServiceCtx context)
+        [CommandHipc(2)]
+        // RegisterService(ServiceName name, u8 isLight, u32 maxHandles) -> handle<move, port>
+        public ResultCode RegisterServiceHipc(ServiceCtx context)
         {
             if (!_isInitialized)
             {
@@ -130,6 +146,35 @@ namespace Ryujinx.HLE.HOS.Services.Sm
 
             int maxSessions = context.RequestData.ReadInt32();
 
+            return RegisterService(context, name, isLight, maxSessions);
+        }
+
+        [CommandTipc(2)] // 12.0.0+
+        // RegisterService(ServiceName name, u32 maxHandles, u8 isLight) -> handle<move, port>
+        public ResultCode RegisterServiceTipc(ServiceCtx context)
+        {
+            if (!_isInitialized)
+            {
+                context.Response.HandleDesc = IpcHandleDesc.MakeMove(0);
+
+                return ResultCode.NotInitialized;
+            }
+
+            long namePosition = context.RequestData.BaseStream.Position;
+
+            string name = ReadName(context);
+
+            context.RequestData.BaseStream.Seek(namePosition + 8, SeekOrigin.Begin);
+
+            int maxSessions = context.RequestData.ReadInt32();
+
+            bool isLight = (context.RequestData.ReadInt32() & 1) != 0;
+
+            return RegisterService(context, name, isLight, maxSessions);
+        }
+
+        private ResultCode RegisterService(ServiceCtx context, string name, bool isLight, int maxSessions)
+        {
             if (string.IsNullOrEmpty(name))
             {
                 return ResultCode.InvalidName;
@@ -139,7 +184,7 @@ namespace Ryujinx.HLE.HOS.Services.Sm
 
             KPort port = new KPort(context.Device.System.KernelContext, maxSessions, isLight, 0);
 
-            if (!_registeredServices.TryAdd(name, port))
+            if (!_registry.TryRegister(name, port))
             {
                 return ResultCode.AlreadyRegistered;
             }
@@ -154,7 +199,8 @@ namespace Ryujinx.HLE.HOS.Services.Sm
             return ResultCode.Success;
         }
 
-        [Command(3)]
+        [CommandHipc(3)]
+        [CommandTipc(3)] // 12.0.0+
         // UnregisterService(ServiceName name)
         public ResultCode UnregisterService(ServiceCtx context)
         {
@@ -178,7 +224,7 @@ namespace Ryujinx.HLE.HOS.Services.Sm
                 return ResultCode.InvalidName;
             }
 
-            if (!_registeredServices.TryRemove(name, out _))
+            if (!_registry.Unregister(name))
             {
                 return ResultCode.NotRegistered;
             }
@@ -203,6 +249,13 @@ namespace Ryujinx.HLE.HOS.Services.Sm
             }
 
             return name;
+        }
+
+        public override void DestroyAtExit()
+        {
+            _commonServer.Dispose();
+
+            base.DestroyAtExit();
         }
     }
 }

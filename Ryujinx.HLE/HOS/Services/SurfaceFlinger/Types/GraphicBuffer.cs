@@ -1,4 +1,3 @@
-using Ryujinx.HLE.HOS.Kernel.Process;
 using Ryujinx.HLE.HOS.Services.Nv.NvDrvServices.NvMap;
 using System;
 using System.Runtime.CompilerServices;
@@ -42,7 +41,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
             Buffer = parcel.ReadUnmanagedType<NvGraphicBuffer>();
         }
 
-        public void IncrementNvMapHandleRefCount(long pid)
+        public void IncrementNvMapHandleRefCount(ulong pid)
         {
             NvMapDeviceFile.IncrementMapRefCount(pid, Buffer.NvMapId);
 
@@ -52,7 +51,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
             }
         }
 
-        public void DecrementNvMapHandleRefCount(long pid)
+        public void DecrementNvMapHandleRefCount(ulong pid)
         {
             NvMapDeviceFile.DecrementMapRefCount(pid, Buffer.NvMapId);
 

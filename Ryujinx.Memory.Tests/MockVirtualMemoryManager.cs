@@ -1,8 +1,10 @@
-﻿using System;
+﻿using Ryujinx.Memory.Range;
+using System;
+using System.Collections.Generic;
 
 namespace Ryujinx.Memory.Tests
 {
-    class MockVirtualMemoryManager : IVirtualMemoryManager
+    public class MockVirtualMemoryManager : IVirtualMemoryManager
     {
         public bool NoMappings = false;
 
@@ -42,12 +44,17 @@ namespace Ryujinx.Memory.Tests
             throw new NotImplementedException();
         }
 
+        public bool WriteWithRedundancyCheck(ulong va, ReadOnlySpan<byte> data)
+        {
+            throw new NotImplementedException();
+        }
+
         public ReadOnlySpan<byte> GetSpan(ulong va, int size, bool tracked = false)
         {
             throw new NotImplementedException();
         }
 
-        public WritableRegion GetWritableRegion(ulong va, int size)
+        public WritableRegion GetWritableRegion(ulong va, int size, bool tracked = false)
         {
             throw new NotImplementedException();
         }
@@ -57,9 +64,9 @@ namespace Ryujinx.Memory.Tests
             throw new NotImplementedException();
         }
 
-        public (ulong address, ulong size)[] GetPhysicalRegions(ulong va, ulong size)
+        IEnumerable<MemoryRange> IVirtualMemoryManager.GetPhysicalRegions(ulong va, ulong size)
         {
-            return NoMappings ? new (ulong address, ulong size)[0] : new (ulong address, ulong size)[] { (va, size) };
+            return NoMappings ? new MemoryRange[0] : new MemoryRange[] { new MemoryRange(va, size) };
         }
 
         public bool IsMapped(ulong va)
@@ -77,7 +84,7 @@ namespace Ryujinx.Memory.Tests
             throw new NotImplementedException();
         }
 
-        public void SignalMemoryTracking(ulong va, ulong size, bool write)
+        public void SignalMemoryTracking(ulong va, ulong size, bool write, bool precise = false)
         {
             throw new NotImplementedException();
         }

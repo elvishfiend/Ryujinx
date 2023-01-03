@@ -1,26 +1,11 @@
-﻿//
-// Copyright (c) 2019-2021 Ryujinx
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
-
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Integration;
 using Ryujinx.Common.Logging;
 using Ryujinx.Memory;
 using System;
 using System.Diagnostics;
+using System.Linq;
+using System.Threading;
 
 namespace Ryujinx.Audio.Output
 {
@@ -60,6 +45,11 @@ namespace Ryujinx.Audio.Output
         /// The count of active sessions.
         /// </summary>
         private int _activeSessionCount;
+
+        /// <summary>
+        /// The dispose state.
+        /// </summary>
+        private int _disposeState;
 
         /// <summary>
         /// Create a new <see cref="AudioOutputManager"/>.
@@ -201,13 +191,14 @@ namespace Ryujinx.Audio.Output
                                        SampleFormat sampleFormat,
                                        ref AudioInputConfiguration parameter,
                                        ulong appletResourceUserId,
-                                       uint processHandle)
+                                       uint processHandle,
+                                       float volume)
         {
             int sessionId = AcquireSessionId();
 
             _sessionsBufferEvents[sessionId].Clear();
 
-            IHardwareDeviceSession deviceSession = _deviceDriver.OpenDeviceSession(IHardwareDeviceDriver.Direction.Output, memoryManager, sampleFormat, parameter.SampleRate, parameter.ChannelCount);
+            IHardwareDeviceSession deviceSession = _deviceDriver.OpenDeviceSession(IHardwareDeviceDriver.Direction.Output, memoryManager, sampleFormat, parameter.SampleRate, parameter.ChannelCount, volume);
 
             AudioOutputSystem audioOut = new AudioOutputSystem(this, _lock, deviceSession, _sessionsBufferEvents[sessionId]);
 
@@ -218,9 +209,9 @@ namespace Ryujinx.Audio.Output
                 outputDeviceName = audioOut.DeviceName;
                 outputConfiguration = new AudioOutputConfiguration
                 {
-                    ChannelCount  = audioOut.ChannelCount,
-                    SampleFormat  = audioOut.SampleFormat,
-                    SampleRate    = audioOut.SampleRate,
+                    ChannelCount = audioOut.ChannelCount,
+                    SampleFormat = audioOut.SampleFormat,
+                    SampleRate = audioOut.SampleRate,
                     AudioOutState = audioOut.GetState(),
                 };
 
@@ -240,16 +231,65 @@ namespace Ryujinx.Audio.Output
             return result;
         }
 
+        /// <summary>
+        /// Sets the volume for all output devices.
+        /// </summary>
+        /// <param name="volume">The volume to set.</param>
+        public void SetVolume(float volume)
+        {
+            if (_sessions != null)
+            {
+                foreach (AudioOutputSystem session in _sessions)
+                {
+                    session?.SetVolume(volume);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the volume for all output devices.
+        /// </summary>
+        /// <returns>A float indicating the volume level.</returns>
+        public float GetVolume()
+        {
+            if (_sessions != null)
+            {
+                foreach (AudioOutputSystem session in _sessions)
+                {
+                    if (session != null)
+                    {
+                        return session.GetVolume();
+                    }
+                }
+            }
+
+            return 0.0f;
+        }
+
         public void Dispose()
         {
-            Dispose(true);
+            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) == 0)
+            {
+                Dispose(true);
+            }
         }
 
         protected virtual void Dispose(bool disposing)
         {
             if (disposing)
             {
-                // Nothing to do here.
+                // Clone the sessions array to dispose them outside the lock.
+                AudioOutputSystem[] sessions;
+
+                lock (_sessionLock)
+                {
+                    sessions = _sessions.ToArray();
+                }
+
+                foreach (AudioOutputSystem output in sessions)
+                {
+                    output?.Dispose();
+                }
             }
         }
     }

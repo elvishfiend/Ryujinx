@@ -1,6 +1,7 @@
 using OpenTK.Graphics.OpenGL;
 using Ryujinx.Graphics.GAL;
 using System;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace Ryujinx.Graphics.OpenGL
@@ -9,16 +10,19 @@ namespace Ryujinx.Graphics.OpenGL
     {
         public int Handle { get; private set; }
 
-        private bool _needsAttribsUpdate;
-
         private readonly VertexAttribDescriptor[] _vertexAttribs;
         private readonly VertexBufferDescriptor[] _vertexBuffers;
 
-        private int _vertexAttribsCount;
-        private int _vertexBuffersCount;
+        private int _minVertexCount;
 
         private uint _vertexAttribsInUse;
         private uint _vertexBuffersInUse;
+        private uint _vertexBuffersLimited;
+
+        private BufferRange _indexBuffer;
+        private BufferHandle _tempIndexBuffer;
+        private BufferHandle _tempVertexBuffer;
+        private int _tempVertexBufferSize;
 
         public VertexArray()
         {
@@ -26,6 +30,8 @@ namespace Ryujinx.Graphics.OpenGL
 
             _vertexAttribs = new VertexAttribDescriptor[Constants.MaxVertexAttribs];
             _vertexBuffers = new VertexBufferDescriptor[Constants.MaxVertexBuffers];
+
+            _tempIndexBuffer = Buffer.Create();
         }
 
         public void Bind()
@@ -35,6 +41,8 @@ namespace Ryujinx.Graphics.OpenGL
 
         public void SetVertexBuffers(ReadOnlySpan<VertexBufferDescriptor> vertexBuffers)
         {
+            int minVertexCount = int.MaxValue;
+
             int bindingIndex;
             for (bindingIndex = 0; bindingIndex < vertexBuffers.Length; bindingIndex++)
             {
@@ -42,6 +50,12 @@ namespace Ryujinx.Graphics.OpenGL
 
                 if (vb.Buffer.Handle != BufferHandle.Null)
                 {
+                    int vertexCount = vb.Stride <= 0 ? 0 : vb.Buffer.Size / vb.Stride;
+                    if (minVertexCount > vertexCount)
+                    {
+                        minVertexCount = vertexCount;
+                    }
+
                     GL.BindVertexBuffer(bindingIndex, vb.Buffer.Handle.ToInt32(), (IntPtr)vb.Buffer.Offset, vb.Stride);
                     GL.VertexBindingDivisor(bindingIndex, vb.Divisor);
                     _vertexBuffersInUse |= 1u << bindingIndex;
@@ -58,8 +72,7 @@ namespace Ryujinx.Graphics.OpenGL
                 _vertexBuffers[bindingIndex] = vb;
             }
 
-            _vertexBuffersCount = bindingIndex;
-            _needsAttribsUpdate = true;
+            _minVertexCount = minVertexCount;
         }
 
         public void SetVertexAttributes(ReadOnlySpan<VertexAttribDescriptor> vertexAttribs)
@@ -80,7 +93,7 @@ namespace Ryujinx.Graphics.OpenGL
                 if (attrib.IsZero)
                 {
                     // Disabling the attribute causes the shader to read a constant value.
-                    // The value is configurable, but by default is a vector of (0, 0, 0, 1).
+                    // We currently set the constant to (0, 0, 0, 0).
                     DisableVertexAttrib(index);
                 }
                 else
@@ -112,47 +125,121 @@ namespace Ryujinx.Graphics.OpenGL
                 _vertexAttribs[index] = attrib;
             }
 
-            _vertexAttribsCount = index;
-
             for (; index < Constants.MaxVertexAttribs; index++)
             {
                 DisableVertexAttrib(index);
             }
         }
 
-        public void SetIndexBuffer(BufferHandle buffer)
+        public void SetIndexBuffer(BufferRange range)
         {
-            GL.BindBuffer(BufferTarget.ElementArrayBuffer, buffer.ToInt32());
+            _indexBuffer = range;
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, range.Handle.ToInt32());
         }
 
-        public void Validate()
+        public void SetRangeOfIndexBuffer()
         {
-            for (int attribIndex = 0; attribIndex < _vertexAttribsCount; attribIndex++)
+            Buffer.Resize(_tempIndexBuffer, _indexBuffer.Size);
+            Buffer.Copy(_indexBuffer.Handle, _tempIndexBuffer, _indexBuffer.Offset, 0, _indexBuffer.Size);
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, _tempIndexBuffer.ToInt32());
+        }
+
+        public void RestoreIndexBuffer()
+        {
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, _indexBuffer.Handle.ToInt32());
+        }
+
+        public void PreDraw(int vertexCount)
+        {
+            LimitVertexBuffers(vertexCount);
+        }
+
+        public void PreDrawVbUnbounded()
+        {
+            UnlimitVertexBuffers();
+        }
+
+        public void LimitVertexBuffers(int vertexCount)
+        {
+            // Is it possible for the draw to fetch outside the bounds of any vertex buffer currently bound?
+
+            if (vertexCount <= _minVertexCount)
             {
-                VertexAttribDescriptor attrib = _vertexAttribs[attribIndex];
-
-                if (!attrib.IsZero)
-                {
-                    if ((uint)attrib.BufferIndex >= _vertexBuffersCount)
-                    {
-                        DisableVertexAttrib(attribIndex);
-                        continue;
-                    }
-
-                    if (_vertexBuffers[attrib.BufferIndex].Buffer.Handle == BufferHandle.Null)
-                    {
-                        DisableVertexAttrib(attribIndex);
-                        continue;
-                    }
-
-                    if (_needsAttribsUpdate)
-                    {
-                        EnableVertexAttrib(attribIndex);
-                    }
-                }
+                return;
             }
 
-            _needsAttribsUpdate = false;
+            // If the draw can fetch out of bounds, let's ensure that it will only fetch zeros rather than memory garbage.
+
+            int currentTempVbOffset = 0;
+            uint buffersInUse = _vertexBuffersInUse;
+
+            while (buffersInUse != 0)
+            {
+                int vbIndex = BitOperations.TrailingZeroCount(buffersInUse);
+
+                ref var vb = ref _vertexBuffers[vbIndex];
+
+                int requiredSize = vertexCount * vb.Stride;
+
+                if (vb.Buffer.Size < requiredSize)
+                {
+                    BufferHandle tempVertexBuffer = EnsureTempVertexBufferSize(currentTempVbOffset + requiredSize);
+
+                    Buffer.Copy(vb.Buffer.Handle, tempVertexBuffer, vb.Buffer.Offset, currentTempVbOffset, vb.Buffer.Size);
+                    Buffer.Clear(tempVertexBuffer, currentTempVbOffset + vb.Buffer.Size, requiredSize - vb.Buffer.Size, 0);
+
+                    GL.BindVertexBuffer(vbIndex, tempVertexBuffer.ToInt32(), (IntPtr)currentTempVbOffset, vb.Stride);
+
+                    currentTempVbOffset += requiredSize;
+                    _vertexBuffersLimited |= 1u << vbIndex;
+                }
+
+                buffersInUse &= ~(1u << vbIndex);
+            }
+        }
+
+        private BufferHandle EnsureTempVertexBufferSize(int size)
+        {
+            BufferHandle tempVertexBuffer = _tempVertexBuffer;
+
+            if (_tempVertexBufferSize < size)
+            {
+                _tempVertexBufferSize = size;
+
+                if (tempVertexBuffer == BufferHandle.Null)
+                {
+                    tempVertexBuffer = Buffer.Create(size);
+                    _tempVertexBuffer = tempVertexBuffer;
+                    return tempVertexBuffer;
+                }
+
+                Buffer.Resize(_tempVertexBuffer, size);
+            }
+
+            return tempVertexBuffer;
+        }
+
+        public void UnlimitVertexBuffers()
+        {
+            uint buffersLimited = _vertexBuffersLimited;
+
+            if (buffersLimited == 0)
+            {
+                return;
+            }
+
+            while (buffersLimited != 0)
+            {
+                int vbIndex = BitOperations.TrailingZeroCount(buffersLimited);
+
+                ref var vb = ref _vertexBuffers[vbIndex];
+
+                GL.BindVertexBuffer(vbIndex, vb.Buffer.Handle.ToInt32(), (IntPtr)vb.Buffer.Offset, vb.Stride);
+
+                buffersLimited &= ~(1u << vbIndex);
+            }
+
+            _vertexBuffersLimited = 0;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -176,6 +263,7 @@ namespace Ryujinx.Graphics.OpenGL
             {
                 _vertexAttribsInUse &= ~mask;
                 GL.DisableVertexAttribArray(index);
+                GL.VertexAttrib4(index, 0f, 0f, 0f, 1f);
             }
         }
 

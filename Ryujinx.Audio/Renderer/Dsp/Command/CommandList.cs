@@ -1,31 +1,16 @@
-//
-// Copyright (c) 2019-2021 Ryujinx
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
-
 using Ryujinx.Audio.Integration;
 using Ryujinx.Audio.Renderer.Server;
 using Ryujinx.Common;
 using Ryujinx.Common.Logging;
 using Ryujinx.Memory;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace Ryujinx.Audio.Renderer.Dsp.Command
 {
-    public class CommandList
+    public class CommandList : IDisposable
     {
         public ulong StartTime { get; private set; }
         public ulong EndTime { get; private set; }
@@ -41,6 +26,10 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         public IHardwareDevice OutputDevice { get; private set; }
 
+        private readonly int _sampleCount;
+        private readonly int _buffersEntryCount;
+        private readonly MemoryHandle _buffersMemoryHandle;
+
         public CommandList(AudioRenderSystem renderSystem) : this(renderSystem.MemoryManager,
                                                                   renderSystem.GetMixBuffer(),
                                                                   renderSystem.GetSampleCount(),
@@ -53,11 +42,15 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
         public CommandList(IVirtualMemoryManager memoryManager, Memory<float> mixBuffer, uint sampleCount, uint sampleRate, uint mixBufferCount, uint voiceChannelCountMax)
         {
             SampleCount = sampleCount;
+            _sampleCount = (int)SampleCount;
             SampleRate = sampleRate;
             BufferCount = mixBufferCount + voiceChannelCountMax;
             Buffers = mixBuffer;
             Commands = new List<ICommand>();
             MemoryManager = memoryManager;
+
+            _buffersEntryCount = Buffers.Length;
+            _buffersMemoryHandle = Buffers.Pin();
         }
 
         public void AddCommand(ICommand command)
@@ -70,14 +63,47 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
             throw new NotImplementedException();
         }
 
-        public Memory<float> GetBufferMemory(int index)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe IntPtr GetBufferPointer(int index)
         {
-            return Buffers.Slice(index * (int)SampleCount, (int)SampleCount);
+            if (index >= 0 && index < _buffersEntryCount)
+            {
+                return (IntPtr)((float*)_buffersMemoryHandle.Pointer + index * _sampleCount);
+            }
+
+            throw new ArgumentOutOfRangeException();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe void ClearBuffer(int index)
+        {
+            Unsafe.InitBlock((void*)GetBufferPointer(index), 0, SampleCount);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe void ClearBuffers()
+        {
+            Unsafe.InitBlock(_buffersMemoryHandle.Pointer, 0, (uint)_buffersEntryCount * sizeof(float));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe void CopyBuffer(int outputBufferIndex, int inputBufferIndex)
+        {
+            Unsafe.CopyBlock((void*)GetBufferPointer(outputBufferIndex), (void*)GetBufferPointer(inputBufferIndex), SampleCount);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span<float> GetBuffer(int index)
         {
-            return Buffers.Span.Slice(index * (int)SampleCount, (int)SampleCount);
+            if (index < 0 || index >= _buffersEntryCount)
+            {
+                return Span<float>.Empty;
+            }
+
+            unsafe
+            {
+                return new Span<float>((float*)_buffersMemoryHandle.Pointer + index * _sampleCount, _sampleCount);
+            }
         }
 
         public ulong GetTimeElapsedSinceDspStartedProcessing()
@@ -119,6 +145,11 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
             }
 
             EndTime = (ulong)PerformanceCounter.ElapsedNanoseconds;
+        }
+
+        public void Dispose()
+        {
+            _buffersMemoryHandle.Dispose();
         }
     }
 }

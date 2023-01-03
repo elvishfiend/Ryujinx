@@ -10,7 +10,9 @@ namespace Ryujinx.Memory.Tracking
         ulong Size { get; }
         ulong EndAddress { get; }
 
+        void ForceDirty();
         void Reprotect(bool asDirty = false);
         void RegisterAction(RegionSignal action);
+        void RegisterPreciseAction(PreciseRegionSignal action);
     }
 }

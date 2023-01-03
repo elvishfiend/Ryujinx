@@ -1,35 +1,38 @@
 using Ryujinx.Common.Configuration;
-using Ryujinx.Graphics.Shader;
 using System;
 
 namespace Ryujinx.Graphics.GAL
 {
     public interface IRenderer : IDisposable
     {
+        event EventHandler<ScreenCaptureImageInfo> ScreenCaptured;
+
+        bool PreferThreading { get; }
+
         IPipeline Pipeline { get; }
 
         IWindow Window { get; }
 
-        void BackgroundContextAction(Action action);
-
-        IShader CompileShader(ShaderStage stage, string code);
+        void BackgroundContextAction(Action action, bool alwaysBackground = false);
 
         BufferHandle CreateBuffer(int size);
 
-        IProgram CreateProgram(IShader[] shaders, TransformFeedbackDescriptor[] transformFeedbackDescriptors);
+        IProgram CreateProgram(ShaderSource[] shaders, ShaderInfo info);
 
         ISampler CreateSampler(SamplerCreateInfo info);
         ITexture CreateTexture(TextureCreateInfo info, float scale);
 
-        void CreateSync(ulong id);
+        void CreateSync(ulong id, bool strict);
 
         void DeleteBuffer(BufferHandle buffer);
 
-        byte[] GetBufferData(BufferHandle buffer, int offset, int size);
+        ReadOnlySpan<byte> GetBufferData(BufferHandle buffer, int offset, int size);
 
         Capabilities GetCapabilities();
+        ulong GetCurrentSync();
+        HardwareInfo GetHardwareInfo();
 
-        IProgram LoadProgramBinary(byte[] programBinary);
+        IProgram LoadProgramBinary(byte[] programBinary, bool hasFragmentShader, ShaderInfo info);
 
         void SetBufferData(BufferHandle buffer, int offset, ReadOnlySpan<byte> data);
 
@@ -37,12 +40,21 @@ namespace Ryujinx.Graphics.GAL
 
         void PreFrame();
 
-        ICounterEvent ReportCounter(CounterType type, EventHandler<ulong> resultHandler);
+        ICounterEvent ReportCounter(CounterType type, EventHandler<ulong> resultHandler, bool hostReserved);
 
         void ResetCounter(CounterType type);
+
+        void RunLoop(Action gpuLoop)
+        {
+            gpuLoop();
+        }
 
         void WaitSync(ulong id);
 
         void Initialize(GraphicsDebugLevel logLevel);
+
+        void SetInterruptAction(Action<Action> interruptAction);
+
+        void Screenshot();
     }
 }

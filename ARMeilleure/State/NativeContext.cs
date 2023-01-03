@@ -14,10 +14,11 @@ namespace ARMeilleure.State
             public fixed uint Flags[RegisterConsts.FlagsCount];
             public fixed uint FpFlags[RegisterConsts.FpFlagsCount];
             public int Counter;
-            public ulong CallAddress;
+            public ulong DispatchAddress;
             public ulong ExclusiveAddress;
             public ulong ExclusiveValueLow;
             public ulong ExclusiveValueHigh;
+            public int Running;
         }
 
         private static NativeCtxStorage _dummyStorage = new NativeCtxStorage();
@@ -31,6 +32,12 @@ namespace ARMeilleure.State
             _block = allocator.Allocate((ulong)Unsafe.SizeOf<NativeCtxStorage>());
 
             GetStorage().ExclusiveAddress = ulong.MaxValue;
+        }
+
+        public ulong GetPc()
+        {
+            // TODO: More precise tracking of PC value.
+            return GetStorage().DispatchAddress;
         }
 
         public unsafe ulong GetX(int index)
@@ -94,6 +101,25 @@ namespace ARMeilleure.State
             GetStorage().Flags[(int)flag] = value ? 1u : 0u;
         }
 
+        public unsafe uint GetPstate()
+        {
+            uint value = 0;
+            for (int flag = 0; flag < RegisterConsts.FlagsCount; flag++)
+            {
+                value |= GetStorage().Flags[flag] != 0 ? 1u << flag : 0u;
+            }
+            return value;
+        }
+
+        public unsafe void SetPstate(uint value)
+        {
+            for (int flag = 0; flag < RegisterConsts.FlagsCount; flag++)
+            {
+                uint bit = 1u << flag;
+                GetStorage().Flags[flag] = (value & bit) == bit ? 1u : 0u;
+            }
+        }
+
         public unsafe bool GetFPStateFlag(FPState flag)
         {
             if ((uint)flag >= RegisterConsts.FpFlagsCount)
@@ -114,8 +140,39 @@ namespace ARMeilleure.State
             GetStorage().FpFlags[(int)flag] = value ? 1u : 0u;
         }
 
+        public unsafe uint GetFPState(uint mask = uint.MaxValue)
+        {
+            uint value = 0;
+            for (int flag = 0; flag < RegisterConsts.FpFlagsCount; flag++)
+            {
+                uint bit = 1u << flag;
+
+                if ((mask & bit) == bit)
+                {
+                    value |= GetStorage().FpFlags[flag] != 0 ? bit : 0u;
+                }
+            }
+            return value;
+        }
+
+        public unsafe void SetFPState(uint value, uint mask = uint.MaxValue)
+        {
+            for (int flag = 0; flag < RegisterConsts.FpFlagsCount; flag++)
+            {
+                uint bit = 1u << flag;
+
+                if ((mask & bit) == bit)
+                {
+                    GetStorage().FpFlags[flag] = (value & bit) == bit ? 1u : 0u;
+                }
+            }
+        }
+
         public int GetCounter() => GetStorage().Counter;
         public void SetCounter(int value) => GetStorage().Counter = value;
+
+        public bool GetRunning() => GetStorage().Running != 0;
+        public void SetRunning(bool value) => GetStorage().Running = value ? 1 : 0;
 
         public unsafe static int GetRegisterOffset(Register reg)
         {
@@ -162,9 +219,9 @@ namespace ARMeilleure.State
             return StorageOffset(ref _dummyStorage, ref _dummyStorage.Counter);
         }
 
-        public static int GetCallAddressOffset()
+        public static int GetDispatchAddressOffset()
         {
-            return StorageOffset(ref _dummyStorage, ref _dummyStorage.CallAddress);
+            return StorageOffset(ref _dummyStorage, ref _dummyStorage.DispatchAddress);
         }
 
         public static int GetExclusiveAddressOffset()
@@ -175,6 +232,11 @@ namespace ARMeilleure.State
         public static int GetExclusiveValueOffset()
         {
             return StorageOffset(ref _dummyStorage, ref _dummyStorage.ExclusiveValueLow);
+        }
+
+        public static int GetRunningOffset()
+        {
+            return StorageOffset(ref _dummyStorage, ref _dummyStorage.Running);
         }
 
         private static int StorageOffset<T>(ref NativeCtxStorage storage, ref T target)

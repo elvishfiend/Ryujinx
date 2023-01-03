@@ -7,7 +7,7 @@ namespace Ryujinx.Graphics.Texture
 {
     public static class LayoutConverter
     {
-        private const int HostStrideAlignment = 4;
+        public const int HostStrideAlignment = 4;
 
         public static void ConvertBlockLinearToLinear(
             Span<byte> dst,
@@ -93,10 +93,11 @@ namespace Ryujinx.Graphics.Texture
             };
         }
 
-        public static Span<byte> ConvertBlockLinearToLinear(
+        public static byte[] ConvertBlockLinearToLinear(
             int width,
             int height,
             int depth,
+            int sliceDepth,
             int levels,
             int layers,
             int blockWidth,
@@ -118,7 +119,7 @@ namespace Ryujinx.Graphics.Texture
                 blockHeight,
                 bytesPerPixel);
 
-            Span<byte> output = new byte[outSize];
+            byte[] output = new byte[outSize];
 
             int outOffs = 0;
 
@@ -172,6 +173,8 @@ namespace Ryujinx.Graphics.Texture
                     mipGobBlocksInZ,
                     bytesPerPixel);
 
+                int sd = Math.Max(1, sliceDepth >> level);
+
                 unsafe bool Convert<T>(Span<byte> output, ReadOnlySpan<byte> data) where T : unmanaged
                 {
                     fixed (byte* outputPtr = output, dataPtr = data)
@@ -181,7 +184,7 @@ namespace Ryujinx.Graphics.Texture
                         {
                             byte* inBaseOffset = dataPtr + (layer * sizeInfo.LayerSize + sizeInfo.GetMipOffset(level));
 
-                            for (int z = 0; z < d; z++)
+                            for (int z = 0; z < sd; z++)
                             {
                                 layoutConverter.SetZ(z);
                                 for (int y = 0; y < h; y++)
@@ -243,11 +246,12 @@ namespace Ryujinx.Graphics.Texture
             return output;
         }
 
-        public static Span<byte> ConvertLinearStridedToLinear(
+        public static byte[] ConvertLinearStridedToLinear(
             int width,
             int height,
             int blockWidth,
             int blockHeight,
+            int lineSize,
             int stride,
             int bytesPerPixel,
             ReadOnlySpan<byte> data)
@@ -256,16 +260,17 @@ namespace Ryujinx.Graphics.Texture
             int h = BitUtils.DivRoundUp(height, blockHeight);
 
             int outStride = BitUtils.AlignUp(w * bytesPerPixel, HostStrideAlignment);
-            int lineSize = Math.Min(stride, outStride);
+            lineSize = Math.Min(lineSize, outStride);
 
-            Span<byte> output = new byte[h * outStride];
+            byte[] output = new byte[h * outStride];
+            Span<byte> outSpan = output;
 
             int outOffs = 0;
             int inOffs = 0;
 
             for (int y = 0; y < h; y++)
             {
-                data.Slice(inOffs, lineSize).CopyTo(output.Slice(outOffs, lineSize));
+                data.Slice(inOffs, lineSize).CopyTo(outSpan.Slice(outOffs, lineSize));
 
                 inOffs += stride;
                 outOffs += outStride;
@@ -358,10 +363,12 @@ namespace Ryujinx.Graphics.Texture
             };
         }
 
-        public static Span<byte> ConvertLinearToBlockLinear(
+        public static ReadOnlySpan<byte> ConvertLinearToBlockLinear(
+            Span<byte> output,
             int width,
             int height,
             int depth,
+            int sliceDepth,
             int levels,
             int layers,
             int blockWidth,
@@ -373,7 +380,10 @@ namespace Ryujinx.Graphics.Texture
             SizeInfo sizeInfo,
             ReadOnlySpan<byte> data)
         {
-            Span<byte> output = new byte[sizeInfo.TotalSize];
+            if (output.Length == 0)
+            {
+                output = new byte[sizeInfo.TotalSize];
+            }
 
             int inOffs = 0;
 
@@ -427,6 +437,8 @@ namespace Ryujinx.Graphics.Texture
                     mipGobBlocksInZ,
                     bytesPerPixel);
 
+                int sd = Math.Max(1, sliceDepth >> level);
+
                 unsafe bool Convert<T>(Span<byte> output, ReadOnlySpan<byte> data) where T : unmanaged
                 {
                     fixed (byte* outputPtr = output, dataPtr = data)
@@ -436,7 +448,7 @@ namespace Ryujinx.Graphics.Texture
                         {
                             byte* outBaseOffset = outputPtr + (layer * sizeInfo.LayerSize + sizeInfo.GetMipOffset(level));
 
-                            for (int z = 0; z < d; z++)
+                            for (int z = 0; z < sd; z++)
                             {
                                 layoutConverter.SetZ(z);
                                 for (int y = 0; y < h; y++)
@@ -499,7 +511,8 @@ namespace Ryujinx.Graphics.Texture
             return output;
         }
 
-        public static Span<byte> ConvertLinearToLinearStrided(
+        public static ReadOnlySpan<byte> ConvertLinearToLinearStrided(
+            Span<byte> output,
             int width,
             int height,
             int blockWidth,
@@ -514,7 +527,23 @@ namespace Ryujinx.Graphics.Texture
             int inStride = BitUtils.AlignUp(w * bytesPerPixel, HostStrideAlignment);
             int lineSize = width * bytesPerPixel;
 
-            Span<byte> output = new byte[h * stride];
+            if (inStride == stride)
+            {
+                if (output.Length != 0)
+                {
+                    data.CopyTo(output);
+                    return output;
+                }
+                else
+                {
+                    return data;
+                }
+            }
+
+            if (output.Length == 0)
+            {
+                output = new byte[h * stride];
+            }
 
             int inOffs = 0;
             int outOffs = 0;

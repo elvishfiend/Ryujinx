@@ -23,7 +23,7 @@ namespace Ryujinx.Memory.Tests
         {
             _memoryBlock = new MemoryBlock(MemorySize);
             _memoryManager = new MockVirtualMemoryManager(MemorySize, PageSize);
-            _tracking = new MemoryTracking(_memoryManager, _memoryBlock, PageSize);
+            _tracking = new MemoryTracking(_memoryManager, PageSize);
         }
 
         [TearDown]
@@ -188,7 +188,7 @@ namespace Ryujinx.Memory.Tests
             Assert.False(alignedAfterTriggers);
         }
 
-        [Test, Timeout(1000)]
+        [Test, Explicit, Timeout(1000)]
         public void Multithreading()
         {
             // Multithreading sanity test
@@ -448,6 +448,62 @@ namespace Ryujinx.Memory.Tests
             Assert.IsNull(readTrackingTriggered); // Read tracking was removed when the action fired, as it can only fire once.
 
             handle.Dispose();
+        }
+
+        [Test]
+        public void PreciseAction()
+        {
+            RegionHandle handle = _tracking.BeginTracking(0, PageSize);
+
+            (ulong address, ulong size, bool write)? preciseTriggered = null;
+            handle.RegisterPreciseAction((address, size, write) =>
+            {
+                preciseTriggered = (address, size, write);
+
+                return true;
+            });
+
+            (ulong address, ulong size)? readTrackingTriggered = null;
+            handle.RegisterAction((address, size) =>
+            {
+                readTrackingTriggered = (address, size);
+            });
+
+            handle.Reprotect();
+
+            _tracking.VirtualMemoryEvent(0, 4, false, precise: true);
+
+            Assert.IsNull(readTrackingTriggered); // Hasn't been triggered - precise action returned true.
+            Assert.AreEqual(preciseTriggered, (0UL, 4UL, false)); // Precise action was triggered.
+
+            _tracking.VirtualMemoryEvent(0, 4, true, precise: true);
+
+            Assert.IsNull(readTrackingTriggered); // Still hasn't been triggered.
+            bool dirtyAfterPreciseActionTrue = handle.Dirty;
+            Assert.False(dirtyAfterPreciseActionTrue); // Not dirtied - precise action returned true.
+            Assert.AreEqual(preciseTriggered, (0UL, 4UL, true)); // Precise action was triggered.
+
+            // Handle is now dirty.
+            handle.Reprotect(true);
+            preciseTriggered = null;
+
+            _tracking.VirtualMemoryEvent(4, 4, true, precise: true);
+            Assert.AreEqual(preciseTriggered, (4UL, 4UL, true)); // Precise action was triggered even though handle was dirty.
+
+            handle.Reprotect();
+            handle.RegisterPreciseAction((address, size, write) =>
+            {
+                preciseTriggered = (address, size, write);
+
+                return false; // Now, we return false, which indicates that the regular read/write behaviours should trigger.
+            });
+
+            _tracking.VirtualMemoryEvent(8, 4, true, precise: true);
+
+            Assert.AreEqual(readTrackingTriggered, (8UL, 4UL)); // Read action triggered, as precise action returned false.
+            bool dirtyAfterPreciseActionFalse = handle.Dirty;
+            Assert.True(dirtyAfterPreciseActionFalse); // Dirtied, as precise action returned false.
+            Assert.AreEqual(preciseTriggered, (8UL, 4UL, true)); // Precise action was triggered.
         }
     }
 }

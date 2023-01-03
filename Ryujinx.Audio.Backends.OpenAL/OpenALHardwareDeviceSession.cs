@@ -19,7 +19,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
 
         private object _lock = new object();
 
-        public OpenALHardwareDeviceSession(OpenALHardwareDeviceDriver driver, IVirtualMemoryManager memoryManager, SampleFormat requestedSampleFormat, uint requestedSampleRate, uint requestedChannelCount) : base(memoryManager, requestedSampleFormat, requestedSampleRate, requestedChannelCount)
+        public OpenALHardwareDeviceSession(OpenALHardwareDeviceDriver driver, IVirtualMemoryManager memoryManager, SampleFormat requestedSampleFormat, uint requestedSampleRate, uint requestedChannelCount, float requestedVolume) : base(memoryManager, requestedSampleFormat, requestedSampleRate, requestedChannelCount)
         {
             _driver = driver;
             _queuedBuffers = new Queue<OpenALAudioBuffer>();
@@ -27,6 +27,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
             _targetFormat = GetALFormat();
             _isActive = false;
             _playedSampleCount = 0;
+            SetVolume(requestedVolume);
         }
 
         private ALFormat GetALFormat()
@@ -71,11 +72,11 @@ namespace Ryujinx.Audio.Backends.OpenAL
                 OpenALAudioBuffer driverBuffer = new OpenALAudioBuffer
                 {
                     DriverIdentifier = buffer.DataPointer,
-                    BufferId         = AL.GenBuffer(),
-                    SampleCount      = GetSampleCount(buffer)
+                    BufferId = AL.GenBuffer(),
+                    SampleCount = GetSampleCount(buffer)
                 };
 
-                AL.BufferData(driverBuffer.BufferId, _targetFormat, buffer.Data, (int)buffer.DataSize, (int)RequestedSampleRate);
+                AL.BufferData(driverBuffer.BufferId, _targetFormat, buffer.Data, (int)RequestedSampleRate);
 
                 _queuedBuffers.Enqueue(driverBuffer);
 
@@ -125,7 +126,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
             }
         }
 
-        public override void UnregisterBuffer(AudioBuffer buffer) {}
+        public override void UnregisterBuffer(AudioBuffer buffer) { }
 
         public override bool WasBufferFullyConsumed(AudioBuffer buffer)
         {
@@ -190,7 +191,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
 
         protected virtual void Dispose(bool disposing)
         {
-            if (disposing)
+            if (disposing && _driver.Unregister(this))
             {
                 lock (_lock)
                 {
@@ -198,8 +199,6 @@ namespace Ryujinx.Audio.Backends.OpenAL
                     Stop();
 
                     AL.DeleteSource(_sourceId);
-
-                    _driver.Unregister(this);
                 }
             }
         }

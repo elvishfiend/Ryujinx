@@ -9,9 +9,19 @@ namespace Ryujinx.Graphics.Gpu.Image
     class Sampler : IDisposable
     {
         /// <summary>
+        /// True if the sampler is disposed, false otherwise.
+        /// </summary>
+        public bool IsDisposed { get; private set; }
+
+        /// <summary>
         /// Host sampler object.
         /// </summary>
-        public ISampler HostSampler { get; }
+        private readonly ISampler _hostSampler;
+
+        /// <summary>
+        /// Host sampler object, with anisotropy forced.
+        /// </summary>
+        private readonly ISampler _anisoSampler;
 
         /// <summary>
         /// Creates a new instance of the cached sampler.
@@ -42,13 +52,10 @@ namespace Ryujinx.Graphics.Gpu.Image
             float maxLod     = descriptor.UnpackMaxLod();
             float mipLodBias = descriptor.UnpackMipLodBias();
 
-            float maxRequestedAnisotropy = GraphicsConfig.MaxAnisotropy >= 0 && GraphicsConfig.MaxAnisotropy <= 16 ? GraphicsConfig.MaxAnisotropy : descriptor.UnpackMaxAnisotropy();
+            float maxRequestedAnisotropy = descriptor.UnpackMaxAnisotropy();
             float maxSupportedAnisotropy = context.Capabilities.MaximumSupportedAnisotropy;
 
-            if (maxRequestedAnisotropy > maxSupportedAnisotropy)
-                maxRequestedAnisotropy = maxSupportedAnisotropy;
-
-            HostSampler = context.Renderer.CreateSampler(new SamplerCreateInfo(
+            _hostSampler = context.Renderer.CreateSampler(new SamplerCreateInfo(
                 minFilter,
                 magFilter,
                 seamlessCubemap,
@@ -61,7 +68,37 @@ namespace Ryujinx.Graphics.Gpu.Image
                 minLod,
                 maxLod,
                 mipLodBias,
-                maxRequestedAnisotropy));
+                Math.Min(maxRequestedAnisotropy, maxSupportedAnisotropy)));
+
+            if (GraphicsConfig.MaxAnisotropy >= 0 && GraphicsConfig.MaxAnisotropy <= 16 && (minFilter == MinFilter.LinearMipmapNearest || minFilter == MinFilter.LinearMipmapLinear))
+            {
+                maxRequestedAnisotropy = GraphicsConfig.MaxAnisotropy;
+
+                _anisoSampler = context.Renderer.CreateSampler(new SamplerCreateInfo(
+                    minFilter,
+                    magFilter,
+                    seamlessCubemap,
+                    addressU,
+                    addressV,
+                    addressP,
+                    compareMode,
+                    compareOp,
+                    color,
+                    minLod,
+                    maxLod,
+                    mipLodBias,
+                    Math.Min(maxRequestedAnisotropy, maxSupportedAnisotropy)));
+            }
+        }
+
+        /// <summary>
+        /// Gets a host sampler for the given texture.
+        /// </summary>
+        /// <param name="texture">Texture to be sampled</param>
+        /// <returns>A host sampler</returns>
+        public ISampler GetHostSampler(Texture texture)
+        {
+            return _anisoSampler != null && texture?.CanForceAnisotropy == true ? _anisoSampler : _hostSampler;
         }
 
         /// <summary>
@@ -69,7 +106,10 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// </summary>
         public void Dispose()
         {
-            HostSampler.Dispose();
+            IsDisposed = true;
+
+            _hostSampler.Dispose();
+            _anisoSampler?.Dispose();
         }
     }
 }

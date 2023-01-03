@@ -7,6 +7,20 @@
     <property name="step_increment">1</property>
     <property name="page_increment">4</property>
   </object>
+  <object class="GtkAdjustment" id="_controllerStrongRumble">
+    <property name="lower">0.1</property>
+    <property name="upper">10</property>
+    <property name="value">1.0</property>
+    <property name="step_increment">0.1</property>
+    <property name="page_increment">1.0</property>
+  </object>
+  <object class="GtkAdjustment" id="_controllerWeakRumble">
+    <property name="lower">0.1</property>
+    <property name="upper">10</property>
+    <property name="value">1.0</property>
+    <property name="step_increment">0.1</property>
+    <property name="page_increment">1.0</property>
+  </object>
   <object class="GtkAdjustment" id="_controllerDeadzoneLeft">
     <property name="upper">1</property>
     <property name="value">0.050000000000000003</property>
@@ -16,6 +30,18 @@
   <object class="GtkAdjustment" id="_controllerDeadzoneRight">
     <property name="upper">1</property>
     <property name="value">0.050000000000000003</property>
+    <property name="step_increment">0.01</property>
+    <property name="page_increment">0.10000000000000001</property>
+  </object>
+  <object class="GtkAdjustment" id="_controllerRangeLeft">
+    <property name="upper">2</property>
+    <property name="value">1.000000000000000003</property>
+    <property name="step_increment">0.01</property>
+    <property name="page_increment">0.10000000000000001</property>
+  </object>
+  <object class="GtkAdjustment" id="_controllerRangeRight">
+    <property name="upper">2</property>
+    <property name="value">1.000000000000000003</property>
     <property name="step_increment">0.01</property>
     <property name="page_increment">0.10000000000000001</property>
   </object>
@@ -48,8 +74,8 @@
     <property name="title" translatable="yes">Ryujinx - Controller Settings</property>
     <property name="modal">True</property>
     <property name="window_position">center</property>
-    <property name="default_width">1150</property>
-    <property name="default_height">690</property>
+    <property name="default_width">1200</property>
+    <property name="default_height">720</property>
     <child type="titlebar">
       <placeholder/>
     </child>
@@ -111,21 +137,6 @@
                                 <property name="expand">True</property>
                                 <property name="fill">True</property>
                                 <property name="position">1</property>
-                              </packing>
-                            </child>
-                            <child>
-                              <object class="GtkToggleButton" id="_refreshInputDevicesButton">
-                                <property name="label" translatable="yes">Refresh</property>
-                                <property name="visible">True</property>
-                                <property name="can_focus">True</property>
-                                <property name="receives_default">True</property>
-                                <property name="margin_left">5</property>
-                                <signal name="toggled" handler="RefreshInputDevicesButton_Pressed" swapped="no"/>
-                              </object>
-                              <packing>
-                                <property name="expand">False</property>
-                                <property name="fill">True</property>
-                                <property name="position">2</property>
                               </packing>
                             </child>
                           </object>
@@ -682,7 +693,7 @@
                                             <property name="width_request">80</property>
                                             <property name="visible">True</property>
                                             <property name="can_focus">False</property>
-                                            <property name="label" translatable="yes">LStick Lt/Rt</property>
+                                            <property name="label" translatable="yes">LStick</property>
                                             <property name="xalign">0</property>
                                           </object>
                                           <packing>
@@ -691,20 +702,7 @@
                                           </packing>
                                         </child>
                                         <child>
-                                          <object class="GtkLabel">
-                                            <property name="width_request">80</property>
-                                            <property name="visible">True</property>
-                                            <property name="can_focus">False</property>
-                                            <property name="label" translatable="yes">LStick Up/Dn</property>
-                                            <property name="xalign">0</property>
-                                          </object>
-                                          <packing>
-                                            <property name="left_attach">0</property>
-                                            <property name="top_attach">1</property>
-                                          </packing>
-                                        </child>
-                                        <child>
-                                          <object class="GtkToggleButton" id="_lStickX">
+                                          <object class="GtkToggleButton" id="_lStick">
                                             <property name="label" translatable="yes"> </property>
                                             <property name="width_request">65</property>
                                             <property name="visible">True</property>
@@ -714,24 +712,11 @@
                                           <packing>
                                             <property name="left_attach">1</property>
                                             <property name="top_attach">0</property>
-                                          </packing>
-                                        </child>
-                                        <child>
-                                          <object class="GtkToggleButton" id="_lStickY">
-                                            <property name="label" translatable="yes"> </property>
-                                            <property name="width_request">65</property>
-                                            <property name="visible">True</property>
-                                            <property name="can_focus">True</property>
-                                            <property name="receives_default">True</property>
-                                          </object>
-                                          <packing>
-                                            <property name="left_attach">1</property>
-                                            <property name="top_attach">1</property>
                                           </packing>
                                         </child>
                                         <child>
                                           <object class="GtkCheckButton" id="_invertLStickX">
-                                            <property name="label" translatable="yes">Invert</property>
+                                            <property name="label" translatable="yes">Invert Stick X</property>
                                             <property name="visible">True</property>
                                             <property name="can_focus">True</property>
                                             <property name="receives_default">False</property>
@@ -744,7 +729,7 @@
                                         </child>
                                         <child>
                                           <object class="GtkCheckButton" id="_invertLStickY">
-                                            <property name="label" translatable="yes">Invert</property>
+                                            <property name="label" translatable="yes">Invert Stick Y</property>
                                             <property name="visible">True</property>
                                             <property name="can_focus">True</property>
                                             <property name="receives_default">False</property>
@@ -753,6 +738,19 @@
                                           <packing>
                                             <property name="left_attach">2</property>
                                             <property name="top_attach">1</property>
+                                          </packing>
+                                        </child>
+                                        <child>
+                                          <object class="GtkCheckButton" id="_rotateL90CW">
+                                            <property name="label" translatable="yes">Rotate 90° Clockwise</property>
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">True</property>
+                                            <property name="receives_default">False</property>
+                                            <property name="draw_indicator">True</property>
+                                          </object>
+                                          <packing>
+                                            <property name="left_attach">2</property>
+                                            <property name="top_attach">2</property>
                                           </packing>
                                         </child>
                                       </object>
@@ -800,6 +798,46 @@
                                         <property name="expand">False</property>
                                         <property name="fill">True</property>
                                         <property name="position">4</property>
+                                      </packing>
+                                    </child>
+                                    <child>
+                                      <object class="GtkBox" id="_rangeLeftBox">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <property name="margin_top">10</property>
+                                        <property name="orientation">vertical</property>
+                                        <child>
+                                          <object class="GtkLabel">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">False</property>
+                                            <property name="halign">start</property>
+                                            <property name="label" translatable="yes">Range Left</property>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">False</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">0</property>
+                                          </packing>
+                                        </child>
+                                        <child>
+                                          <object class="GtkScale">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">True</property>
+                                            <property name="adjustment">_controllerRangeLeft</property>
+                                            <property name="round_digits">2</property>
+                                            <property name="digits">2</property>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">True</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">1</property>
+                                          </packing>
+                                        </child>
+                                      </object>
+                                      <packing>
+                                        <property name="expand">False</property>
+                                        <property name="fill">True</property>
+                                        <property name="position">5</property>
                                       </packing>
                                     </child>
                                   </object>
@@ -1290,6 +1328,130 @@
                                         <property name="position">1</property>
                                       </packing>
                                     </child>
+                                    <child>
+                                      <object class="GtkBox" id="_rumbleBox">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <property name="margin_top">10</property>
+                                        <property name="orientation">vertical</property>
+                                        <child>
+                                          <object class="GtkLabel">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">False</property>
+                                            <property name="margin_top">10</property>
+                                            <property name="margin_bottom">5</property>
+                                            <property name="label" translatable="yes">Rumble</property>
+                                            <attributes>
+                                              <attribute name="weight" value="bold"/>
+                                            </attributes>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">False</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">0</property>
+                                          </packing>
+                                        </child>
+                                        <child>
+                                          <object class="GtkCheckButton" id="_enableRumble">
+                                            <property name="label" translatable="yes">Enable</property>
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">True</property>
+                                            <property name="receives_default">False</property>
+                                            <property name="draw_indicator">True</property>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">False</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">1</property>
+                                          </packing>
+                                        </child>
+                                        <child>
+                                          <object class="GtkBox" id="_StrongMultiBox">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">False</property>
+                                            <property name="margin_top">10</property>
+                                            <property name="orientation">vertical</property>
+                                            <child>
+                                              <object class="GtkLabel">
+                                                <property name="visible">True</property>
+                                                <property name="can_focus">False</property>
+                                                <property name="halign">start</property>
+                                                <property name="label" translatable="yes">Strong rumble multiplier</property>
+                                              </object>
+                                              <packing>
+                                                <property name="expand">False</property>
+                                                <property name="fill">True</property>
+                                                <property name="position">0</property>
+                                              </packing>
+                                            </child>
+                                            <child>
+                                              <object class="GtkScale">
+                                                <property name="visible">True</property>
+                                                <property name="can_focus">True</property>
+                                                <property name="adjustment">_controllerStrongRumble</property>
+                                                <property name="round_digits">1</property>
+                                                <property name="digits">1</property>
+                                              </object>
+                                              <packing>
+                                                <property name="expand">True</property>
+                                                <property name="fill">True</property>
+                                                <property name="position">1</property>
+                                              </packing>
+                                            </child>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">False</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">2</property>
+                                          </packing>
+                                        </child>
+                                        <child>
+                                          <object class="GtkBox" id="_WeakMultiBox">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">False</property>
+                                            <property name="margin_top">10</property>
+                                            <property name="orientation">vertical</property>
+                                            <child>
+                                              <object class="GtkLabel">
+                                                <property name="visible">True</property>
+                                                <property name="can_focus">False</property>
+                                                <property name="halign">start</property>
+                                                <property name="label" translatable="yes">Weak rumble multiplier</property>
+                                              </object>
+                                              <packing>
+                                                <property name="expand">False</property>
+                                                <property name="fill">True</property>
+                                                <property name="position">0</property>
+                                              </packing>
+                                            </child>
+                                            <child>
+                                              <object class="GtkScale">
+                                                <property name="visible">True</property>
+                                                <property name="can_focus">True</property>
+                                                <property name="adjustment">_controllerWeakRumble</property>
+                                                <property name="round_digits">1</property>
+                                                <property name="digits">1</property>
+                                              </object>
+                                              <packing>
+                                                <property name="expand">True</property>
+                                                <property name="fill">True</property>
+                                                <property name="position">1</property>
+                                              </packing>
+                                            </child>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">False</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">3</property>
+                                          </packing>
+                                        </child>
+                                      </object>
+                                      <packing>
+                                        <property name="expand">False</property>
+                                        <property name="fill">True</property>
+                                        <property name="position">2</property>
+                                      </packing>
+                                    </child>
                                   </object>
                                   <packing>
                                     <property name="expand">False</property>
@@ -1501,7 +1663,7 @@
                                             <property name="width_request">80</property>
                                             <property name="visible">True</property>
                                             <property name="can_focus">False</property>
-                                            <property name="label" translatable="yes">RStick Lt/Rt</property>
+                                            <property name="label" translatable="yes">RStick</property>
                                             <property name="xalign">0</property>
                                           </object>
                                           <packing>
@@ -1510,20 +1672,7 @@
                                           </packing>
                                         </child>
                                         <child>
-                                          <object class="GtkLabel">
-                                            <property name="width_request">80</property>
-                                            <property name="visible">True</property>
-                                            <property name="can_focus">False</property>
-                                            <property name="label" translatable="yes">RStick Up/Dn</property>
-                                            <property name="xalign">0</property>
-                                          </object>
-                                          <packing>
-                                            <property name="left_attach">0</property>
-                                            <property name="top_attach">1</property>
-                                          </packing>
-                                        </child>
-                                        <child>
-                                          <object class="GtkToggleButton" id="_rStickX">
+                                          <object class="GtkToggleButton" id="_rStick">
                                             <property name="label" translatable="yes"> </property>
                                             <property name="width_request">65</property>
                                             <property name="visible">True</property>
@@ -1533,24 +1682,11 @@
                                           <packing>
                                             <property name="left_attach">1</property>
                                             <property name="top_attach">0</property>
-                                          </packing>
-                                        </child>
-                                        <child>
-                                          <object class="GtkToggleButton" id="_rStickY">
-                                            <property name="label" translatable="yes"> </property>
-                                            <property name="width_request">65</property>
-                                            <property name="visible">True</property>
-                                            <property name="can_focus">True</property>
-                                            <property name="receives_default">True</property>
-                                          </object>
-                                          <packing>
-                                            <property name="left_attach">1</property>
-                                            <property name="top_attach">1</property>
                                           </packing>
                                         </child>
                                         <child>
                                           <object class="GtkCheckButton" id="_invertRStickX">
-                                            <property name="label" translatable="yes">Invert</property>
+                                            <property name="label" translatable="yes">Invert Stick X</property>
                                             <property name="visible">True</property>
                                             <property name="can_focus">True</property>
                                             <property name="receives_default">False</property>
@@ -1563,7 +1699,7 @@
                                         </child>
                                         <child>
                                           <object class="GtkCheckButton" id="_invertRStickY">
-                                            <property name="label" translatable="yes">Invert</property>
+                                            <property name="label" translatable="yes">Invert Stick Y</property>
                                             <property name="visible">True</property>
                                             <property name="can_focus">True</property>
                                             <property name="receives_default">False</property>
@@ -1572,6 +1708,19 @@
                                           <packing>
                                             <property name="left_attach">2</property>
                                             <property name="top_attach">1</property>
+                                          </packing>
+                                        </child>
+                                        <child>
+                                          <object class="GtkCheckButton" id="_rotateR90CW">
+                                            <property name="label" translatable="yes">Rotate 90° Clockwise</property>
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">True</property>
+                                            <property name="receives_default">False</property>
+                                            <property name="draw_indicator">True</property>
+                                          </object>
+                                          <packing>
+                                            <property name="left_attach">2</property>
+                                            <property name="top_attach">2</property>
                                           </packing>
                                         </child>
                                       </object>
@@ -1621,6 +1770,46 @@
                                         <property name="position">4</property>
                                       </packing>
                                     </child>
+                                    <child>
+                                      <object class="GtkBox" id="_rangeRightBox">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <property name="margin_top">10</property>
+                                        <property name="orientation">vertical</property>
+                                        <child>
+                                          <object class="GtkLabel">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">False</property>
+                                            <property name="halign">start</property>
+                                            <property name="label" translatable="yes">Range Right</property>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">False</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">0</property>
+                                          </packing>
+                                        </child>
+                                        <child>
+                                          <object class="GtkScale">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">True</property>
+                                            <property name="adjustment">_controllerRangeRight</property>
+                                            <property name="round_digits">2</property>
+                                            <property name="digits">2</property>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">True</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">1</property>
+                                          </packing>
+                                        </child>
+                                      </object>
+                                      <packing>
+                                        <property name="expand">False</property>
+                                        <property name="fill">True</property>
+                                        <property name="position">5</property>
+                                      </packing>
+                                    </child>
                                   </object>
                                   <packing>
                                     <property name="expand">False</property>
@@ -1640,7 +1829,7 @@
                                   </packing>
                                 </child>
                                 <child>
-                                  <object class="GtkBox" id="MotionBox">
+                                  <object class="GtkBox" id="_motionBox">
                                     <property name="visible">True</property>
                                     <property name="can_focus">False</property>
                                     <property name="margin_left">10</property>
@@ -1679,7 +1868,21 @@
                                       </packing>
                                     </child>
                                     <child>
-                                      <object class="GtkBox">
+                                      <object class="GtkCheckButton" id="_enableCemuHook">
+                                        <property name="label" translatable="yes">Use CemuHook compatible motion</property>
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">True</property>
+                                        <property name="receives_default">False</property>
+                                        <property name="draw_indicator">True</property>
+                                      </object>
+                                      <packing>
+                                        <property name="expand">False</property>
+                                        <property name="fill">True</property>
+                                        <property name="position">2</property>
+                                      </packing>
+                                    </child>
+                                    <child>
+                                      <object class="GtkBox" id="_motionControllerSlot">
                                         <property name="visible">True</property>
                                         <property name="can_focus">False</property>
                                         <property name="spacing">10</property>
@@ -1718,7 +1921,7 @@
                                         <property name="expand">False</property>
                                         <property name="fill">True</property>
                                         <property name="padding">5</property>
-                                        <property name="position">2</property>
+                                        <property name="position">3</property>
                                       </packing>
                                     </child>
                                     <child>
@@ -1761,11 +1964,11 @@
                                         <property name="expand">False</property>
                                         <property name="fill">True</property>
                                         <property name="padding">5</property>
-                                        <property name="position">3</property>
+                                        <property name="position">4</property>
                                       </packing>
                                     </child>
                                     <child>
-                                      <object class="GtkBox" id="_altBox">
+                                      <object class="GtkBox" id="_motionAltBox">
                                         <property name="visible">True</property>
                                         <property name="can_focus">False</property>
                                         <property name="orientation">vertical</property>
@@ -1829,11 +2032,11 @@
                                       <packing>
                                         <property name="expand">False</property>
                                         <property name="fill">True</property>
-                                        <property name="position">4</property>
+                                        <property name="position">5</property>
                                       </packing>
                                     </child>
                                     <child>
-                                      <object class="GtkBox">
+                                      <object class="GtkBox" id="_dsuServerHostBox">
                                         <property name="visible">True</property>
                                         <property name="can_focus">False</property>
                                         <property name="spacing">30</property>
@@ -1866,11 +2069,11 @@
                                         <property name="expand">False</property>
                                         <property name="fill">True</property>
                                         <property name="padding">5</property>
-                                        <property name="position">5</property>
+                                        <property name="position">6</property>
                                       </packing>
                                     </child>
                                     <child>
-                                      <object class="GtkBox">
+                                      <object class="GtkBox" id="_dsuServerPortBox">
                                         <property name="visible">True</property>
                                         <property name="can_focus">False</property>
                                         <property name="spacing">30</property>
@@ -1903,7 +2106,7 @@
                                         <property name="expand">False</property>
                                         <property name="fill">True</property>
                                         <property name="padding">5</property>
-                                        <property name="position">6</property>
+                                        <property name="position">7</property>
                                       </packing>
                                     </child>
                                     <child>
@@ -1916,7 +2119,7 @@
                                       <packing>
                                         <property name="expand">False</property>
                                         <property name="fill">True</property>
-                                        <property name="position">7</property>
+                                        <property name="position">8</property>
                                       </packing>
                                     </child>
                                     <child>
@@ -1930,7 +2133,7 @@
                                       <packing>
                                         <property name="expand">True</property>
                                         <property name="fill">True</property>
-                                        <property name="position">8</property>
+                                        <property name="position">9</property>
                                       </packing>
                                     </child>
                                   </object>

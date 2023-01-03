@@ -1,6 +1,8 @@
 using Gtk;
-using System.Reflection;
 using Ryujinx.Common.Logging;
+using Ryujinx.Ui.Common.Configuration;
+using System.Collections.Generic;
+using System.Reflection;
 
 namespace Ryujinx.Ui.Widgets
 {
@@ -12,7 +14,7 @@ namespace Ryujinx.Ui.Widgets
             : base(null, DialogFlags.Modal, messageType, buttonsType, null)
         {
             Title              = title;
-            Icon               = new Gdk.Pixbuf(Assembly.GetExecutingAssembly(), "Ryujinx.Ui.Resources.Logo_Ryujinx.png");
+            Icon               = new Gdk.Pixbuf(Assembly.GetAssembly(typeof(ConfigurationState)), "Ryujinx.Ui.Common.Resources.Logo_Ryujinx.png");
             Text               = mainText;
             SecondaryText      = secondaryText;
             WindowPosition     = WindowPosition.Center;
@@ -74,6 +76,34 @@ namespace Ryujinx.Ui.Widgets
             _isChoiceDialogOpen = false;
 
             return response == ResponseType.Yes;
+        }
+
+        internal static ResponseType CreateCustomDialog(string title, string mainText, string secondaryText, Dictionary<int, string> buttons, MessageType messageType = MessageType.Other)
+        {
+            GtkDialog gtkDialog = new GtkDialog(title, mainText, secondaryText, messageType, ButtonsType.None);
+
+            foreach (var button in buttons)
+            {
+                gtkDialog.AddButton(button.Value, button.Key);
+            }
+
+            return (ResponseType)gtkDialog.Run();
+        }
+
+        internal static string CreateInputDialog(Window parent, string title, string mainText, uint inputMax)
+        {
+            GtkInputDialog gtkDialog    = new GtkInputDialog(parent, title, mainText, inputMax);
+            ResponseType   response     = (ResponseType)gtkDialog.Run();
+            string         responseText = gtkDialog.InputEntry.Text.TrimEnd();
+
+            gtkDialog.Dispose();
+
+            if (response == ResponseType.Ok)
+            {
+                return responseText;
+            }
+
+            return "";
         }
 
         internal static bool CreateExitDialog()

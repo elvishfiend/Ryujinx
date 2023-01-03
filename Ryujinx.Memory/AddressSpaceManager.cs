@@ -1,4 +1,7 @@
-﻿using System;
+﻿using Ryujinx.Memory.Range;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -10,15 +13,9 @@ namespace Ryujinx.Memory
     /// </summary>
     public sealed class AddressSpaceManager : IVirtualMemoryManager, IWritableBlock
     {
-        public const int PageBits = 12;
-        public const int PageSize = 1 << PageBits;
-        public const int PageMask = PageSize - 1;
-
-        private const int PtLevelBits = 9; // 9 * 4 + 12 = 48 (max address space size)
-        private const int PtLevelSize = 1 << PtLevelBits;
-        private const int PtLevelMask = PtLevelSize - 1;
-
-        private const ulong Unmapped = ulong.MaxValue;
+        public const int PageBits = PageTable<ulong>.PageBits;
+        public const int PageSize = PageTable<ulong>.PageSize;
+        public const int PageMask = PageTable<ulong>.PageMask;
 
         /// <summary>
         /// Address space width in bits.
@@ -28,8 +25,7 @@ namespace Ryujinx.Memory
         private readonly ulong _addressSpaceSize;
 
         private readonly MemoryBlock _backingMemory;
-
-        private readonly ulong[][][][] _pageTable;
+        private readonly PageTable<ulong> _pageTable;
 
         /// <summary>
         /// Creates a new instance of the memory manager.
@@ -50,25 +46,17 @@ namespace Ryujinx.Memory
             AddressSpaceBits = asBits;
             _addressSpaceSize = asSize;
             _backingMemory = backingMemory;
-            _pageTable = new ulong[PtLevelSize][][][];
+            _pageTable = new PageTable<ulong>();
         }
 
-        /// <summary>
-        /// Maps a virtual memory range into a physical memory range.
-        /// </summary>
-        /// <remarks>
-        /// Addresses and size must be page aligned.
-        /// </remarks>
-        /// <param name="va">Virtual memory address</param>
-        /// <param name="pa">Physical memory address</param>
-        /// <param name="size">Size to be mapped</param>
+        /// <inheritdoc/>
         public void Map(ulong va, ulong pa, ulong size)
         {
             AssertValidAddressAndSize(va, size);
 
             while (size != 0)
             {
-                PtMap(va, pa);
+                _pageTable.Map(va, pa);
 
                 va += PageSize;
                 pa += PageSize;
@@ -76,65 +64,39 @@ namespace Ryujinx.Memory
             }
         }
 
-        /// <summary>
-        /// Unmaps a previously mapped range of virtual memory.
-        /// </summary>
-        /// <param name="va">Virtual address of the range to be unmapped</param>
-        /// <param name="size">Size of the range to be unmapped</param>
+        /// <inheritdoc/>
         public void Unmap(ulong va, ulong size)
         {
             AssertValidAddressAndSize(va, size);
 
             while (size != 0)
             {
-                PtUnmap(va);
+                _pageTable.Unmap(va);
 
                 va += PageSize;
                 size -= PageSize;
             }
         }
 
-        /// <summary>
-        /// Reads data from mapped memory.
-        /// </summary>
-        /// <typeparam name="T">Type of the data being read</typeparam>
-        /// <param name="va">Virtual address of the data in memory</param>
-        /// <returns>The data</returns>
-        /// <exception cref="InvalidMemoryRegionException">Throw for unhandled invalid or unmapped memory accesses</exception>
+        /// <inheritdoc/>
         public T Read<T>(ulong va) where T : unmanaged
         {
             return MemoryMarshal.Cast<byte, T>(GetSpan(va, Unsafe.SizeOf<T>()))[0];
         }
 
-        /// <summary>
-        /// Reads data from mapped memory.
-        /// </summary>
-        /// <param name="va">Virtual address of the data in memory</param>
-        /// <param name="data">Span to store the data being read into</param>
-        /// <exception cref="InvalidMemoryRegionException">Throw for unhandled invalid or unmapped memory accesses</exception>
+        /// <inheritdoc/>
         public void Read(ulong va, Span<byte> data)
         {
             ReadImpl(va, data);
         }
 
-        /// <summary>
-        /// Writes data to mapped memory.
-        /// </summary>
-        /// <typeparam name="T">Type of the data being written</typeparam>
-        /// <param name="va">Virtual address to write the data into</param>
-        /// <param name="value">Data to be written</param>
-        /// <exception cref="InvalidMemoryRegionException">Throw for unhandled invalid or unmapped memory accesses</exception>
+        /// <inheritdoc/>
         public void Write<T>(ulong va, T value) where T : unmanaged
         {
             Write(va, MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref value, 1)));
         }
 
-        /// <summary>
-        /// Writes data to mapped memory.
-        /// </summary>
-        /// <param name="va">Virtual address to write the data into</param>
-        /// <param name="data">Data to be written</param>
-        /// <exception cref="InvalidMemoryRegionException">Throw for unhandled invalid or unmapped memory accesses</exception>
+        /// <inheritdoc/>
         public void Write(ulong va, ReadOnlySpan<byte> data)
         {
             if (data.Length == 0)
@@ -174,18 +136,15 @@ namespace Ryujinx.Memory
             }
         }
 
-        /// <summary>
-        /// Gets a read-only span of data from mapped memory.
-        /// </summary>
-        /// <remarks>
-        /// This may perform a allocation if the data is not contiguous in memory.
-        /// For this reason, the span is read-only, you can't modify the data.
-        /// </remarks>
-        /// <param name="va">Virtual address of the data</param>
-        /// <param name="size">Size of the data</param>
-        /// <param name="tracked">True if read tracking is triggered on the span</param>
-        /// <returns>A read-only span of the data</returns>
-        /// <exception cref="InvalidMemoryRegionException">Throw for unhandled invalid or unmapped memory accesses</exception>
+        /// <inheritdoc/>
+        public bool WriteWithRedundancyCheck(ulong va, ReadOnlySpan<byte> data)
+        {
+            Write(va, data);
+
+            return true;
+        }
+
+        /// <inheritdoc/>
         public ReadOnlySpan<byte> GetSpan(ulong va, int size, bool tracked = false)
         {
             if (size == 0)
@@ -207,19 +166,8 @@ namespace Ryujinx.Memory
             }
         }
 
-        /// <summary>
-        /// Gets a region of memory that can be written to.
-        /// </summary>
-        /// <remarks>
-        /// If the requested region is not contiguous in physical memory,
-        /// this will perform an allocation, and flush the data (writing it
-        /// back to the backing memory) on disposal.
-        /// </remarks>
-        /// <param name="va">Virtual address of the data</param>
-        /// <param name="size">Size of the data</param>
-        /// <returns>A writable region of memory containing the data</returns>
-        /// <exception cref="InvalidMemoryRegionException">Throw for unhandled invalid or unmapped memory accesses</exception>
-        public WritableRegion GetWritableRegion(ulong va, int size)
+        /// <inheritdoc/>
+        public unsafe WritableRegion GetWritableRegion(ulong va, int size, bool tracked = false)
         {
             if (size == 0)
             {
@@ -240,16 +188,7 @@ namespace Ryujinx.Memory
             }
         }
 
-        /// <summary>
-        /// Gets a reference for the given type at the specified virtual memory address.
-        /// </summary>
-        /// <remarks>
-        /// The data must be located at a contiguous memory region.
-        /// </remarks>
-        /// <typeparam name="T">Type of the data to get the reference</typeparam>
-        /// <param name="va">Virtual address of the data</param>
-        /// <returns>A reference to the data in memory</returns>
-        /// <exception cref="MemoryNotContiguousException">Throw if the specified memory region is not contiguous in physical memory</exception>
+        /// <inheritdoc/>
         public ref T GetRef<T>(ulong va) where T : unmanaged
         {
             if (!IsContiguous(va, Unsafe.SizeOf<T>()))
@@ -260,13 +199,7 @@ namespace Ryujinx.Memory
             return ref _backingMemory.GetRef<T>(GetPhysicalAddressInternal(va));
         }
 
-        /// <summary>
-        /// Computes the number of pages in a virtual address range.
-        /// </summary>
-        /// <param name="va">Virtual address of the range</param>
-        /// <param name="size">Size of the range</param>
-        /// <param name="startVa">The virtual address of the beginning of the first page</param>
-        /// <remarks>This function does not differentiate between allocated and unallocated pages.</remarks>
+        /// <inheritdoc/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int GetPagesCount(ulong va, uint size, out ulong startVa)
         {
@@ -277,7 +210,7 @@ namespace Ryujinx.Memory
             return (int)(vaSpan / PageSize);
         }
 
-        private void ThrowMemoryNotContiguous() => throw new MemoryNotContiguousException();
+        private static void ThrowMemoryNotContiguous() => throw new MemoryNotContiguousException();
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsContiguousAndMapped(ulong va, int size) => IsContiguous(va, size) && IsMapped(va);
@@ -310,16 +243,49 @@ namespace Ryujinx.Memory
             return true;
         }
 
-        /// <summary>
-        /// Gets the physical regions that make up the given virtual address region.
-        /// If any part of the virtual region is unmapped, null is returned.
-        /// </summary>
-        /// <param name="va">Virtual address of the range</param>
-        /// <param name="size">Size of the range</param>
-        /// <returns>Array of physical regions</returns>
-        public (ulong address, ulong size)[] GetPhysicalRegions(ulong va, ulong size)
+        /// <inheritdoc/>
+        public IEnumerable<MemoryRange> GetPhysicalRegions(ulong va, ulong size)
         {
-            throw new NotImplementedException();
+            if (size == 0)
+            {
+                return Enumerable.Empty<MemoryRange>();
+            }
+
+            if (!ValidateAddress(va) || !ValidateAddressAndSize(va, size))
+            {
+                return null;
+            }
+
+            int pages = GetPagesCount(va, (uint)size, out va);
+
+            var regions = new List<MemoryRange>();
+
+            ulong regionStart = GetPhysicalAddressInternal(va);
+            ulong regionSize = PageSize;
+
+            for (int page = 0; page < pages - 1; page++)
+            {
+                if (!ValidateAddress(va + PageSize))
+                {
+                    return null;
+                }
+
+                ulong newPa = GetPhysicalAddressInternal(va + PageSize);
+
+                if (GetPhysicalAddressInternal(va) + PageSize != newPa)
+                {
+                    regions.Add(new MemoryRange(regionStart, regionSize));
+                    regionStart = newPa;
+                    regionSize = 0;
+                }
+
+                va += PageSize;
+                regionSize += PageSize;
+            }
+
+            regions.Add(new MemoryRange(regionStart, regionSize));
+
+            return regions;
         }
 
         private void ReadImpl(ulong va, Span<byte> data)
@@ -354,11 +320,7 @@ namespace Ryujinx.Memory
             }
         }
 
-        /// <summary>
-        /// Checks if the page at a given virtual address is mapped.
-        /// </summary>
-        /// <param name="va">Virtual address to check</param>
-        /// <returns>True if the address is mapped, false otherwise</returns>
+        /// <inheritdoc/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsMapped(ulong va)
         {
@@ -367,15 +329,10 @@ namespace Ryujinx.Memory
                 return false;
             }
 
-            return PtRead(va) != Unmapped;
+            return _pageTable.Read(va) != 0;
         }
 
-        /// <summary>
-        /// Checks if a memory range is mapped.
-        /// </summary>
-        /// <param name="va">Virtual address of the range</param>
-        /// <param name="size">Size of the range in bytes</param>
-        /// <returns>True if the entire range is mapped, false otherwise</returns>
+        /// <inheritdoc/>
         public bool IsRangeMapped(ulong va, ulong size)
         {
             if (size == 0UL)
@@ -434,28 +391,9 @@ namespace Ryujinx.Memory
             }
         }
 
-        /// <summary>
-        /// Performs address translation of the address inside a mapped memory range.
-        /// </summary>
-        /// <remarks>
-        /// If the address is invalid or unmapped, -1 will be returned.
-        /// </remarks>
-        /// <param name="va">Virtual address to be translated</param>
-        /// <returns>The physical address</returns>
-        public ulong GetPhysicalAddress(ulong va)
-        {
-            // We return -1L if the virtual address is invalid or unmapped.
-            if (!ValidateAddress(va) || !IsMapped(va))
-            {
-                return ulong.MaxValue;
-            }
-
-            return GetPhysicalAddressInternal(va);
-        }
-
         private ulong GetPhysicalAddressInternal(ulong va)
         {
-            return PtRead(va) + (va & PageMask);
+            return _pageTable.Read(va) + (va & PageMask);
         }
 
         /// <summary>
@@ -469,133 +407,7 @@ namespace Ryujinx.Memory
             throw new NotImplementedException();
         }
 
-        private ulong PtRead(ulong va)
-        {
-            int l3 = (int)(va >> PageBits) & PtLevelMask;
-            int l2 = (int)(va >> (PageBits + PtLevelBits)) & PtLevelMask;
-            int l1 = (int)(va >> (PageBits + PtLevelBits * 2)) & PtLevelMask;
-            int l0 = (int)(va >> (PageBits + PtLevelBits * 3)) & PtLevelMask;
-
-            if (_pageTable[l0] == null)
-            {
-                return Unmapped;
-            }
-
-            if (_pageTable[l0][l1] == null)
-            {
-                return Unmapped;
-            }
-
-            if (_pageTable[l0][l1][l2] == null)
-            {
-                return Unmapped;
-            }
-
-            return _pageTable[l0][l1][l2][l3];
-        }
-
-        private void PtMap(ulong va, ulong value)
-        {
-            int l3 = (int)(va >> PageBits) & PtLevelMask;
-            int l2 = (int)(va >> (PageBits + PtLevelBits)) & PtLevelMask;
-            int l1 = (int)(va >> (PageBits + PtLevelBits * 2)) & PtLevelMask;
-            int l0 = (int)(va >> (PageBits + PtLevelBits * 3)) & PtLevelMask;
-
-            if (_pageTable[l0] == null)
-            {
-                _pageTable[l0] = new ulong[PtLevelSize][][];
-            }
-
-            if (_pageTable[l0][l1] == null)
-            {
-                _pageTable[l0][l1] = new ulong[PtLevelSize][];
-            }
-
-            if (_pageTable[l0][l1][l2] == null)
-            {
-                _pageTable[l0][l1][l2] = new ulong[PtLevelSize];
-
-                for (int i = 0; i < _pageTable[l0][l1][l2].Length; i++)
-                {
-                    _pageTable[l0][l1][l2][i] = Unmapped;
-                }
-            }
-
-            _pageTable[l0][l1][l2][l3] = value;
-        }
-
-        private void PtUnmap(ulong va)
-        {
-            int l3 = (int)(va >> PageBits) & PtLevelMask;
-            int l2 = (int)(va >> (PageBits + PtLevelBits)) & PtLevelMask;
-            int l1 = (int)(va >> (PageBits + PtLevelBits * 2)) & PtLevelMask;
-            int l0 = (int)(va >> (PageBits + PtLevelBits * 3)) & PtLevelMask;
-
-            if (_pageTable[l0] == null)
-            {
-                return;
-            }
-
-            if (_pageTable[l0][l1] == null)
-            {
-                return;
-            }
-
-            if (_pageTable[l0][l1][l2] == null)
-            {
-                return;
-            }
-
-            _pageTable[l0][l1][l2][l3] = Unmapped;
-
-            bool empty = true;
-
-            for (int i = 0; i < _pageTable[l0][l1][l2].Length; i++)
-            {
-                empty &= (_pageTable[l0][l1][l2][i] == Unmapped);
-            }
-
-            if (empty)
-            {
-                _pageTable[l0][l1][l2] = null;
-
-                RemoveIfAllNull(l0, l1);
-            }
-        }
-
-        private void RemoveIfAllNull(int l0, int l1)
-        {
-            bool empty = true;
-
-            for (int i = 0; i < _pageTable[l0][l1].Length; i++)
-            {
-                empty &= (_pageTable[l0][l1][i] == null);
-            }
-
-            if (empty)
-            {
-                _pageTable[l0][l1] = null;
-
-                RemoveIfAllNull(l0);
-            }
-        }
-
-        private void RemoveIfAllNull(int l0)
-        {
-            bool empty = true;
-
-            for (int i = 0; i < _pageTable[l0].Length; i++)
-            {
-                empty &= (_pageTable[l0][i] == null);
-            }
-
-            if (empty)
-            {
-                _pageTable[l0] = null;
-            }
-        }
-
-        public void SignalMemoryTracking(ulong va, ulong size, bool write)
+        public void SignalMemoryTracking(ulong va, ulong size, bool write, bool precise = false)
         {
             // Only the ARM Memory Manager has tracking for now.
         }

@@ -1,23 +1,6 @@
-//
-// Copyright (c) 2019-2021 Ryujinx
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
-
 using Ryujinx.Audio.Common;
-using Ryujinx.Audio.Renderer.Common;
 using Ryujinx.Audio.Renderer.Dsp.Command;
+using Ryujinx.Audio.Renderer.Parameter.Effect;
 using System;
 using System.Diagnostics;
 using static Ryujinx.Audio.Renderer.Parameter.VoiceInParameter;
@@ -29,8 +12,8 @@ namespace Ryujinx.Audio.Renderer.Server
     /// </summary>
     public class CommandProcessingTimeEstimatorVersion3 : ICommandProcessingTimeEstimator
     {
-        private uint _sampleCount;
-        private uint _bufferCount;
+        protected uint _sampleCount;
+        protected uint _bufferCount;
 
         public CommandProcessingTimeEstimatorVersion3(uint sampleCount, uint bufferCount)
         {
@@ -198,7 +181,7 @@ namespace Ryujinx.Audio.Renderer.Server
             return (uint)1853.2f;
         }
 
-        public uint Estimate(DelayCommand command)
+        public virtual uint Estimate(DelayCommand command)
         {
             Debug.Assert(_sampleCount == 160 || _sampleCount == 240);
 
@@ -272,7 +255,7 @@ namespace Ryujinx.Audio.Renderer.Server
             }
         }
 
-        public uint Estimate(ReverbCommand command)
+        public virtual uint Estimate(ReverbCommand command)
         {
             Debug.Assert(_sampleCount == 160 || _sampleCount == 240);
 
@@ -346,7 +329,7 @@ namespace Ryujinx.Audio.Renderer.Server
             }
         }
 
-        public uint Estimate(Reverb3dCommand command)
+        public virtual uint Estimate(Reverb3dCommand command)
         {
             Debug.Assert(_sampleCount == 160 || _sampleCount == 240);
 
@@ -631,6 +614,143 @@ namespace Ryujinx.Audio.Renderer.Server
                 default:
                     throw new NotImplementedException($"{format}");
             }
+        }
+
+        private uint EstimateLimiterCommandCommon(LimiterParameter parameter, bool enabled)
+        {
+            Debug.Assert(_sampleCount == 160 || _sampleCount == 240);
+
+            if (_sampleCount == 160)
+            {
+                if (enabled)
+                {
+                    switch (parameter.ChannelCount)
+                    {
+                        case 1:
+                            return (uint)21392.0f;
+                        case 2:
+                            return (uint)26829.0f;
+                        case 4:
+                            return (uint)32405.0f;
+                        case 6:
+                            return (uint)52219.0f;
+                        default:
+                            throw new NotImplementedException($"{parameter.ChannelCount}");
+                    }
+                }
+                else
+                {
+                    switch (parameter.ChannelCount)
+                    {
+                        case 1:
+                            return (uint)897.0f;
+                        case 2:
+                            return (uint)931.55f;
+                        case 4:
+                            return (uint)975.39f;
+                        case 6:
+                            return (uint)1016.8f;
+                        default:
+                            throw new NotImplementedException($"{parameter.ChannelCount}");
+                    }
+                }
+            }
+
+            if (enabled)
+            {
+                switch (parameter.ChannelCount)
+                {
+                    case 1:
+                        return (uint)30556.0f;
+                    case 2:
+                        return (uint)39011.0f;
+                    case 4:
+                        return (uint)48270.0f;
+                    case 6:
+                        return (uint)76712.0f;
+                    default:
+                        throw new NotImplementedException($"{parameter.ChannelCount}");
+                }
+            }
+            else
+            {
+                switch (parameter.ChannelCount)
+                {
+                    case 1:
+                        return (uint)874.43f;
+                    case 2:
+                        return (uint)921.55f;
+                    case 4:
+                        return (uint)945.26f;
+                    case 6:
+                        return (uint)992.26f;
+                    default:
+                        throw new NotImplementedException($"{parameter.ChannelCount}");
+                }
+            }
+        }
+
+        public uint Estimate(LimiterCommandVersion1 command)
+        {
+            Debug.Assert(_sampleCount == 160 || _sampleCount == 240);
+
+            return EstimateLimiterCommandCommon(command.Parameter, command.IsEffectEnabled);
+        }
+
+        public uint Estimate(LimiterCommandVersion2 command)
+        {
+            Debug.Assert(_sampleCount == 160 || _sampleCount == 240);
+
+            if (!command.Parameter.StatisticsEnabled || !command.IsEffectEnabled)
+            {
+                return EstimateLimiterCommandCommon(command.Parameter, command.IsEffectEnabled);
+            }
+
+            if (_sampleCount == 160)
+            {
+                switch (command.Parameter.ChannelCount)
+                {
+                    case 1:
+                        return (uint)23309.0f;
+                    case 2:
+                        return (uint)29954.0f;
+                    case 4:
+                        return (uint)35807.0f;
+                    case 6:
+                        return (uint)58340.0f;
+                    default:
+                        throw new NotImplementedException($"{command.Parameter.ChannelCount}");
+                }
+            }
+
+            switch (command.Parameter.ChannelCount)
+            {
+                case 1:
+                    return (uint)33526.0f;
+                case 2:
+                    return (uint)43549.0f;
+                case 4:
+                    return (uint)52190.0f;
+                case 6:
+                    return (uint)85527.0f;
+                default:
+                    throw new NotImplementedException($"{command.Parameter.ChannelCount}");
+            }
+        }
+
+        public virtual uint Estimate(GroupedBiquadFilterCommand command)
+        {
+            return 0;
+        }
+
+        public virtual uint Estimate(CaptureBufferCommand command)
+        {
+            return 0;
+        }
+
+        public virtual uint Estimate(CompressorCommand command)
+        {
+            return 0;
         }
     }
 }

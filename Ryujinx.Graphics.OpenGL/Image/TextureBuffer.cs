@@ -1,4 +1,5 @@
 ﻿using OpenTK.Graphics.OpenGL;
+using Ryujinx.Common.Memory;
 using Ryujinx.Graphics.GAL;
 using System;
 
@@ -6,14 +7,14 @@ namespace Ryujinx.Graphics.OpenGL.Image
 {
     class TextureBuffer : TextureBase, ITexture
     {
-        private Renderer _renderer;
+        private OpenGLRenderer _renderer;
         private int _bufferOffset;
         private int _bufferSize;
         private int _bufferCount;
 
         private BufferHandle _buffer;
 
-        public TextureBuffer(Renderer renderer, TextureCreateInfo info) : base(info)
+        public TextureBuffer(OpenGLRenderer renderer, TextureCreateInfo info) : base(info)
         {
             _renderer = renderer;
         }
@@ -38,17 +39,29 @@ namespace Ryujinx.Graphics.OpenGL.Image
             throw new NotSupportedException();
         }
 
-        public byte[] GetData()
+        public ReadOnlySpan<byte> GetData()
         {
-            return Buffer.GetData(_buffer, _bufferOffset, _bufferSize);
+            return Buffer.GetData(_renderer, _buffer, _bufferOffset, _bufferSize);
         }
 
-        public void SetData(ReadOnlySpan<byte> data)
+        public ReadOnlySpan<byte> GetData(int layer, int level)
         {
-            Buffer.SetData(_buffer, _bufferOffset, data.Slice(0, Math.Min(data.Length, _bufferSize)));
+            return GetData();
         }
 
-        public void SetData(ReadOnlySpan<byte> data, int layer, int level)
+        public void SetData(SpanOrArray<byte> data)
+        {
+            var dataSpan = data.AsSpan();
+
+            Buffer.SetData(_buffer, _bufferOffset, dataSpan.Slice(0, Math.Min(dataSpan.Length, _bufferSize)));
+        }
+
+        public void SetData(SpanOrArray<byte> data, int layer, int level)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void SetData(SpanOrArray<byte> data, int layer, int level, Rectangle<int> region)
         {
             throw new NotSupportedException();
         }
@@ -56,6 +69,7 @@ namespace Ryujinx.Graphics.OpenGL.Image
         public void SetStorage(BufferRange buffer)
         {
             if (_buffer != BufferHandle.Null &&
+                _buffer == buffer.Handle &&
                 buffer.Offset == _bufferOffset &&
                 buffer.Size == _bufferSize &&
                 _renderer.BufferCount == _bufferCount)

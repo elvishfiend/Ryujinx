@@ -1,57 +1,28 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace ARMeilleure.Common
 {
-    class BitMap : IEnumerator<int>, IEnumerable<int>
+    unsafe class BitMap : IEnumerable<int>, IDisposable
     {
         private const int IntSize = 64;
         private const int IntMask = IntSize - 1;
 
-        private readonly List<long> _masks;
+        private int _count;
+        private long* _masks;
+        private readonly Allocator _allocator;
 
-        private int _enumIndex;
-        private long _enumMask;
-        private int _enumBit;
-
-        public int Current => _enumIndex * IntSize + _enumBit;
-        object IEnumerator.Current => Current;
-
-        public BitMap()
+        public BitMap(Allocator allocator)
         {
-            _masks = new List<long>(0);
+            _allocator = allocator;
         }
 
-        public BitMap(int initialCapacity)
+        public BitMap(Allocator allocator, int capacity) : this(allocator)
         {
-            int count = (initialCapacity + IntMask) / IntSize;
-
-            _masks = new List<long>(count);
-
-            while (count-- > 0)
-            {
-                _masks.Add(0);
-            }
-        }
-
-        public BitMap Reset(int initialCapacity)
-        {
-            int count = (initialCapacity + IntMask) / IntSize;
-
-            if (count > _masks.Capacity)
-            {
-                _masks.Capacity = count;
-            }
-
-            _masks.Clear();
-
-            while (count-- > 0)
-            {
-                _masks.Add(0);
-            }
-
-            return this;
+            EnsureCapacity(capacity);
         }
 
         public bool Set(int bit)
@@ -97,7 +68,7 @@ namespace ARMeilleure.Common
 
         public int FindFirstUnset()
         {
-            for (int index = 0; index < _masks.Count; index++)
+            for (int index = 0; index < _count; index++)
             {
                 long mask = _masks[index];
 
@@ -107,16 +78,16 @@ namespace ARMeilleure.Common
                 }
             }
 
-            return _masks.Count * IntSize;
+            return _count * IntSize;
         }
 
         public bool Set(BitMap map)
         {
-            EnsureCapacity(map._masks.Count * IntSize);
+            EnsureCapacity(map._count * IntSize);
 
             bool modified = false;
 
-            for (int index = 0; index < _masks.Count; index++)
+            for (int index = 0; index < _count; index++)
             {
                 long newValue = _masks[index] | map._masks[index];
 
@@ -133,11 +104,11 @@ namespace ARMeilleure.Common
 
         public bool Clear(BitMap map)
         {
-            EnsureCapacity(map._masks.Count * IntSize);
+            EnsureCapacity(map._count * IntSize);
 
             bool modified = false;
 
-            for (int index = 0; index < _masks.Count; index++)
+            for (int index = 0; index < _count; index++)
             {
                 long newValue = _masks[index] & ~map._masks[index];
 
@@ -152,15 +123,34 @@ namespace ARMeilleure.Common
             return modified;
         }
 
-        #region IEnumerable<long> Methods
-
-        // Note: The bit enumerator is embedded in this class to avoid creating garbage when enumerating.
-
         private void EnsureCapacity(int size)
         {
-            while (_masks.Count * IntSize < size)
+            int count = (size + IntMask) / IntSize;
+
+            if (count > _count)
             {
-                _masks.Add(0);
+                var oldMask = _masks;
+                var oldSpan = new Span<long>(_masks, _count);
+
+                _masks = _allocator.Allocate<long>((uint)count);
+                _count = count;
+
+                var newSpan = new Span<long>(_masks, _count);
+
+                oldSpan.CopyTo(newSpan);
+                newSpan.Slice(oldSpan.Length).Clear();
+
+                _allocator.Free(oldMask);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_masks != null)
+            {
+                _allocator.Free(_masks);
+
+                _masks = null;
             }
         }
 
@@ -169,39 +159,64 @@ namespace ARMeilleure.Common
             return GetEnumerator();
         }
 
-        public IEnumerator<int> GetEnumerator()
+        IEnumerator<int> IEnumerable<int>.GetEnumerator()
         {
-            Reset();
-            return this;
+            return GetEnumerator();
         }
 
-        public bool MoveNext()
+        public Enumerator GetEnumerator()
         {
-            if (_enumMask != 0)
+            return new Enumerator(this);
+        }
+
+        public struct Enumerator : IEnumerator<int>
+        {
+            private long _index;
+            private long _mask;
+            private int _bit;
+            private readonly BitMap _map;
+
+            public int Current => (int)_index * IntSize + _bit;
+            object IEnumerator.Current => Current;
+
+            public Enumerator(BitMap map)
             {
-                _enumMask &= ~(1L << _enumBit);
+                _index = -1;
+                _mask = 0;
+                _bit = 0;
+                _map = map;
             }
-            while (_enumMask == 0)
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public bool MoveNext()
             {
-                if (++_enumIndex >= _masks.Count)
+                if (_mask != 0)
                 {
-                    return false;
+                    _mask &= ~(1L << _bit);
                 }
-                _enumMask = _masks[_enumIndex];
+
+                // Manually hoist these loads, because RyuJIT does not.
+                long count = (uint)_map._count;
+                long* masks = _map._masks;
+
+                while (_mask == 0)
+                {
+                    if (++_index >= count)
+                    {
+                        return false;
+                    }
+
+                    _mask = masks[_index];
+                }
+
+                _bit = BitOperations.TrailingZeroCount(_mask);
+
+                return true;
             }
-            _enumBit = BitOperations.TrailingZeroCount(_enumMask);
-            return true;
+
+            public void Reset() { }
+
+            public void Dispose() { }
         }
-
-        public void Reset()
-        {
-            _enumIndex = -1;
-            _enumMask = 0;
-            _enumBit = 0;
-        }
-
-        public void Dispose() { }
-
-        #endregion
     }
 }

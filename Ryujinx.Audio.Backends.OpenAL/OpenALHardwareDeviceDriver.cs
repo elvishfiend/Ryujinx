@@ -1,9 +1,10 @@
-﻿using OpenTK.Audio;
+﻿using OpenTK.Audio.OpenAL;
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Integration;
 using Ryujinx.Memory;
 using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading;
 using static Ryujinx.Audio.Integration.IHardwareDeviceDriver;
 
@@ -11,19 +12,21 @@ namespace Ryujinx.Audio.Backends.OpenAL
 {
     public class OpenALHardwareDeviceDriver : IHardwareDeviceDriver
     {
-        private object _lock = new object();
-
-        private AudioContext _context;
-        private ManualResetEvent _updateRequiredEvent;
-        private List<OpenALHardwareDeviceSession> _sessions;
+        private readonly ALDevice _device;
+        private readonly ALContext _context;
+        private readonly ManualResetEvent _updateRequiredEvent;
+        private readonly ManualResetEvent _pauseEvent;
+        private readonly ConcurrentDictionary<OpenALHardwareDeviceSession, byte> _sessions;
         private bool _stillRunning;
         private Thread _updaterThread;
 
         public OpenALHardwareDeviceDriver()
         {
-            _context = new AudioContext();
+            _device = ALC.OpenDevice("");
+            _context = ALC.CreateContext(_device, new ALContextAttributes());
             _updateRequiredEvent = new ManualResetEvent(false);
-            _sessions = new List<OpenALHardwareDeviceSession>();
+            _pauseEvent = new ManualResetEvent(true);
+            _sessions = new ConcurrentDictionary<OpenALHardwareDeviceSession, byte>();
 
             _stillRunning = true;
             _updaterThread = new Thread(Update)
@@ -40,7 +43,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
             {
                 try
                 {
-                    return AudioContext.AvailableDevices.Count > 0;
+                    return ALC.GetStringList(GetEnumerationStringList.DeviceSpecifier).Any();
                 }
                 catch
                 {
@@ -49,7 +52,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
             }
         }
 
-        public IHardwareDeviceSession OpenDeviceSession(Direction direction, IVirtualMemoryManager memoryManager, SampleFormat sampleFormat, uint sampleRate, uint channelCount)
+        public IHardwareDeviceSession OpenDeviceSession(Direction direction, IVirtualMemoryManager memoryManager, SampleFormat sampleFormat, uint sampleRate, uint channelCount, float volume)
         {
             if (channelCount == 0)
             {
@@ -70,22 +73,16 @@ namespace Ryujinx.Audio.Backends.OpenAL
                 throw new ArgumentException($"{channelCount}");
             }
 
-            lock (_lock)
-            {
-                OpenALHardwareDeviceSession session = new OpenALHardwareDeviceSession(this, memoryManager, sampleFormat, sampleRate, channelCount);
+            OpenALHardwareDeviceSession session = new OpenALHardwareDeviceSession(this, memoryManager, sampleFormat, sampleRate, channelCount, volume);
 
-                _sessions.Add(session);
+            _sessions.TryAdd(session, 0);
 
-                return session;
-            }
+            return session;
         }
 
-        internal void Unregister(OpenALHardwareDeviceSession session)
+        internal bool Unregister(OpenALHardwareDeviceSession session)
         {
-            lock (_lock)
-            {
-                _sessions.Remove(session);
-            }
+            return _sessions.TryRemove(session, out _);
         }
 
         public ManualResetEvent GetUpdateRequiredEvent()
@@ -93,20 +90,24 @@ namespace Ryujinx.Audio.Backends.OpenAL
             return _updateRequiredEvent;
         }
 
+        public ManualResetEvent GetPauseEvent()
+        {
+            return _pauseEvent;
+        }
+
         private void Update()
         {
+            ALC.MakeContextCurrent(_context);
+
             while (_stillRunning)
             {
                 bool updateRequired = false;
 
-                lock (_lock)
+                foreach (OpenALHardwareDeviceSession session in _sessions.Keys)
                 {
-                    foreach (OpenALHardwareDeviceSession session in _sessions)
+                    if (session.Update())
                     {
-                        if (session.Update())
-                        {
-                            updateRequired = true;
-                        }
+                        updateRequired = true;
                     }
                 }
 
@@ -129,21 +130,17 @@ namespace Ryujinx.Audio.Backends.OpenAL
         {
             if (disposing)
             {
-                lock (_lock)
+                _stillRunning = false;
+
+                foreach (OpenALHardwareDeviceSession session in _sessions.Keys)
                 {
-                    _stillRunning = false;
-                    _updaterThread.Join();
-
-                    // Loop against all sessions to dispose them (they will unregister themself)
-                    while (_sessions.Count > 0)
-                    {
-                        OpenALHardwareDeviceSession session = _sessions[0];
-
-                        session.Dispose();
-                    }
+                    session.Dispose();
                 }
 
-                _context.Dispose();
+                ALC.DestroyContext(_context);
+                ALC.CloseDevice(_device);
+
+                _pauseEvent.Dispose();
             }
         }
 

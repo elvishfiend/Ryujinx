@@ -11,20 +11,43 @@ namespace Ryujinx.Memory.Tracking
         public List<RegionHandle> Handles = new List<RegionHandle>();
 
         private readonly MemoryTracking _tracking;
+        private MemoryPermission _lastPermission;
 
-        public VirtualRegion(MemoryTracking tracking, ulong address, ulong size) : base(address, size)
+        public VirtualRegion(MemoryTracking tracking, ulong address, ulong size, MemoryPermission lastPermission = MemoryPermission.Invalid) : base(address, size)
         {
+            _lastPermission = lastPermission;
             _tracking = tracking;
         }
 
         public override void Signal(ulong address, ulong size, bool write)
         {
-            foreach (var handle in Handles)
+            IList<RegionHandle> handles = Handles;
+
+            for (int i = 0; i < handles.Count; i++)
             {
-                handle.Signal(address, size, write);
+                handles[i].Signal(address, size, write, ref handles);
             }
 
             UpdateProtection();
+        }
+
+        public override void SignalPrecise(ulong address, ulong size, bool write)
+        {
+            IList<RegionHandle> handles = Handles;
+
+            bool allPrecise = true;
+
+            for (int i = 0; i < handles.Count; i++)
+            {
+                allPrecise &= handles[i].SignalPrecise(address, size, write, ref handles);
+            }
+
+            // Only update protection if a regular signal handler was called.
+            // This allows precise actions to skip reprotection costs if they want (they can still do it manually).
+            if (!allPrecise)
+            {
+                UpdateProtection();
+            }
         }
 
         /// <summary>
@@ -33,6 +56,8 @@ namespace Ryujinx.Memory.Tracking
         /// <param name="mapped">True if the region has been mapped, false if unmapped</param>
         public void SignalMappingChanged(bool mapped)
         {
+            _lastPermission = MemoryPermission.Invalid;
+
             foreach (RegionHandle handle in Handles)
             {
                 handle.SignalMappingChanged(mapped);
@@ -61,9 +86,19 @@ namespace Ryujinx.Memory.Tracking
         /// <summary>
         /// Updates the protection for this virtual region.
         /// </summary>
-        public void UpdateProtection()
+        public bool UpdateProtection()
         {
-            _tracking.ProtectVirtualRegion(this, GetRequiredPermission());
+            MemoryPermission permission = GetRequiredPermission();
+
+            if (_lastPermission != permission)
+            {
+                _tracking.ProtectVirtualRegion(this, permission);
+                _lastPermission = permission;
+
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -85,7 +120,7 @@ namespace Ryujinx.Memory.Tracking
 
         public override INonOverlappingRange Split(ulong splitAddress)
         {
-            VirtualRegion newRegion = new VirtualRegion(_tracking, splitAddress, EndAddress - splitAddress);
+            VirtualRegion newRegion = new VirtualRegion(_tracking, splitAddress, EndAddress - splitAddress, _lastPermission);
             Size = splitAddress - Address;
 
             // The new region inherits all of our parents.

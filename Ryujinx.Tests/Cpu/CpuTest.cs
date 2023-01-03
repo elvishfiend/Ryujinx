@@ -1,7 +1,8 @@
+using ARMeilleure;
 using ARMeilleure.State;
 using ARMeilleure.Translation;
 using NUnit.Framework;
-using Ryujinx.Cpu;
+using Ryujinx.Cpu.Jit;
 using Ryujinx.Memory;
 using Ryujinx.Tests.Unicorn;
 using System;
@@ -37,14 +38,11 @@ namespace Ryujinx.Tests.Cpu
 
         private bool _usingMemory;
 
-        static CpuTest()
+        [OneTimeSetUp]
+        public void OneTimeSetup()
         {
             _unicornAvailable = UnicornAArch64.IsAvailable();
-
-            if (!_unicornAvailable)
-            {
-                Console.WriteLine("WARNING: Could not find Unicorn.");
-            }
+            Assume.That(_unicornAvailable, "Unicorn is not available");
         }
 
         [SetUp]
@@ -54,12 +52,18 @@ namespace Ryujinx.Tests.Cpu
 
             _ram = new MemoryBlock(Size * 2);
             _memory = new MemoryManager(_ram, 1ul << 16);
+            _memory.IncrementReferenceCount();
             _memory.Map(CodeBaseAddress, 0, Size * 2);
 
             _context = CpuContext.CreateExecutionContext();
             Translator.IsReadyForTranslation.Set();
 
-            _cpuContext = new CpuContext(_memory);
+            _cpuContext = new CpuContext(_memory, for64Bit: true);
+
+            // Prevent registering LCQ functions in the FunctionTable to avoid initializing and populating the table,
+            // which improves test durations.
+            Optimizations.AllowLcqInFunctionTable = false;
+            Optimizations.UseUnmanagedDispatchLoop = false;
 
             if (_unicornAvailable)
             {
@@ -73,7 +77,13 @@ namespace Ryujinx.Tests.Cpu
         [TearDown]
         public void Teardown()
         {
-            _memory.Dispose();
+            if (_unicornAvailable)
+            {
+                _unicornEmu.Dispose();
+                _unicornEmu = null;
+            }
+
+            _memory.DecrementReferenceCount();
             _context.Dispose();
             _ram.Dispose();
 

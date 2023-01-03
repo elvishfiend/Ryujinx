@@ -1,4 +1,7 @@
 using ARMeilleure.Translation.PTC;
+using LibHac.Loader;
+using LibHac.Ncm;
+using LibHac.Util;
 using Ryujinx.Common;
 using Ryujinx.Common.Logging;
 using Ryujinx.HLE.HOS.Kernel;
@@ -6,12 +9,27 @@ using Ryujinx.HLE.HOS.Kernel.Common;
 using Ryujinx.HLE.HOS.Kernel.Memory;
 using Ryujinx.HLE.HOS.Kernel.Process;
 using Ryujinx.HLE.Loaders.Executables;
-using Ryujinx.HLE.Loaders.Npdm;
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
+using Npdm = LibHac.Loader.Npdm;
 
 namespace Ryujinx.HLE.HOS
 {
+    struct ProgramInfo
+    {
+        public string Name;
+        public ulong ProgramId;
+        public bool AllowCodeMemoryForJit;
+
+        public ProgramInfo(in Npdm npdm, bool allowCodeMemoryForJit)
+        {
+            Name = StringUtils.Utf8ZToString(npdm.Meta.Value.ProgramName);
+            ProgramId = npdm.Aci.Value.ProgramId.Value;
+            AllowCodeMemoryForJit = allowCodeMemoryForJit;
+        }
+    }
+
     static class ProgramLoader
     {
         private const bool AslrEnabled = true;
@@ -29,9 +47,9 @@ namespace Ryujinx.HLE.HOS
                 endOffset = kip.BssOffset + kip.BssSize;
             }
 
-            uint codeSize = BitUtils.AlignUp(kip.TextOffset + endOffset, KMemoryManager.PageSize);
+            uint codeSize = BitUtils.AlignUp<uint>(kip.TextOffset + endOffset, KPageTableBase.PageSize);
 
-            int codePagesCount = (int)(codeSize / KMemoryManager.PageSize);
+            int codePagesCount = (int)(codeSize / KPageTableBase.PageSize);
 
             ulong codeBaseAddress = kip.Is64BitAddressSpace ? 0x8000000UL : 0x200000UL;
 
@@ -70,9 +88,9 @@ namespace Ryujinx.HLE.HOS
                 ? MemoryRegion.Service
                 : MemoryRegion.Application;
 
-            KMemoryRegionManager region = context.MemoryRegions[(int)memoryRegion];
+            KMemoryRegionManager region = context.MemoryManager.MemoryRegions[(int)memoryRegion];
 
-            KernelResult result = region.AllocatePages((ulong)codePagesCount, false, out KPageList pageList);
+            KernelResult result = region.AllocatePages(out KPageList pageList, (ulong)codePagesCount);
 
             if (result != KernelResult.Success)
             {
@@ -83,7 +101,7 @@ namespace Ryujinx.HLE.HOS
 
             KProcess process = new KProcess(context);
 
-            var processContextFactory = new ArmProcessContextFactory();
+            var processContextFactory = new ArmProcessContextFactory(context.Device.System.CpuEngine, context.Device.Gpu);
 
             result = process.InitializeKip(
                 creationInfo,
@@ -125,16 +143,32 @@ namespace Ryujinx.HLE.HOS
             return true;
         }
 
-        public static bool LoadNsos(KernelContext context, out ProcessTamperInfo tamperInfo, Npdm metaData, byte[] arguments = null, params IExecutable[] executables)
+        public static bool LoadNsos(
+            KernelContext context,
+            out ProcessTamperInfo tamperInfo,
+            MetaLoader metaData,
+            ProgramInfo programInfo,
+            byte[] arguments = null,
+            params IExecutable[] executables)
         {
+            LibHac.Result rc = metaData.GetNpdm(out var npdm);
+
+            if (rc.IsFailure())
+            {
+                tamperInfo = null;
+                return false;
+            }
+
+            ref readonly var meta = ref npdm.Meta.Value;
+
             ulong argsStart = 0;
             uint  argsSize  = 0;
-            ulong codeStart = metaData.Is64Bit ? 0x8000000UL : 0x200000UL;
+            ulong codeStart = (meta.Flags & 1) != 0 ? 0x8000000UL : 0x200000UL;
             uint  codeSize  = 0;
 
             var buildIds = executables.Select(e => (e switch
             {
-                NsoExecutable nso => BitConverter.ToString(nso.BuildId.Bytes.ToArray()),
+                NsoExecutable nso => BitConverter.ToString(nso.BuildId.ItemsRo.ToArray()),
                 NroExecutable nro => BitConverter.ToString(nro.Header.BuildId),
                 _ => ""
             }).Replace("-", "").ToUpper());
@@ -161,7 +195,7 @@ namespace Ryujinx.HLE.HOS
                     nsoSize = dataEnd;
                 }
 
-                nsoSize = BitUtils.AlignUp(nsoSize, KMemoryManager.PageSize);
+                nsoSize = BitUtils.AlignUp<uint>(nsoSize, KPageTableBase.PageSize);
 
                 nsoBase[index] = codeStart + (ulong)codeSize;
 
@@ -171,7 +205,7 @@ namespace Ryujinx.HLE.HOS
                 {
                     argsStart = (ulong)codeSize;
 
-                    argsSize = (uint)BitUtils.AlignDown(arguments.Length * 2 + ArgsTotalSize - 1, KMemoryManager.PageSize);
+                    argsSize = (uint)BitUtils.AlignDown(arguments.Length * 2 + ArgsTotalSize - 1, KPageTableBase.PageSize);
 
                     codeSize += argsSize;
                 }
@@ -180,25 +214,27 @@ namespace Ryujinx.HLE.HOS
             PtcProfiler.StaticCodeStart = codeStart;
             PtcProfiler.StaticCodeSize  = (ulong)codeSize;
 
-            int codePagesCount = (int)(codeSize / KMemoryManager.PageSize);
+            int codePagesCount = (int)(codeSize / KPageTableBase.PageSize);
 
-            int personalMmHeapPagesCount = metaData.PersonalMmHeapSize / KMemoryManager.PageSize;
+            int personalMmHeapPagesCount = (int)(meta.SystemResourceSize / KPageTableBase.PageSize);
 
             ProcessCreationInfo creationInfo = new ProcessCreationInfo(
-                metaData.TitleName,
-                metaData.Version,
-                metaData.Aci0.TitleId,
+                programInfo.Name,
+                (int)meta.Version,
+                programInfo.ProgramId,
                 codeStart,
                 codePagesCount,
-                (ProcessCreationFlags)metaData.ProcessFlags | ProcessCreationFlags.IsApplication,
+                (ProcessCreationFlags)meta.Flags | ProcessCreationFlags.IsApplication,
                 0,
                 personalMmHeapPagesCount);
+
+            context.Device.System.LibHacHorizonManager.InitializeApplicationClient(new ProgramId(programInfo.ProgramId), in npdm);
 
             KernelResult result;
 
             KResourceLimit resourceLimit = new KResourceLimit(context);
 
-            long applicationRgSize = (long)context.MemoryRegions[(int)MemoryRegion.Application].Size;
+            long applicationRgSize = (long)context.MemoryManager.MemoryRegions[(int)MemoryRegion.Application].Size;
 
             result  = resourceLimit.SetLimitValue(LimitableResource.Memory,         applicationRgSize);
             result |= resourceLimit.SetLimitValue(LimitableResource.Thread,         608);
@@ -215,9 +251,9 @@ namespace Ryujinx.HLE.HOS
                 return false;
             }
 
-            KProcess process = new KProcess(context);
+            KProcess process = new KProcess(context, programInfo.AllowCodeMemoryForJit);
 
-            MemoryRegion memoryRegion = (MemoryRegion)((metaData.Acid.Flags >> 2) & 0xf);
+            MemoryRegion memoryRegion = (MemoryRegion)((npdm.Acid.Value.Flags >> 2) & 0xf);
 
             if (memoryRegion > MemoryRegion.NvServices)
             {
@@ -228,11 +264,11 @@ namespace Ryujinx.HLE.HOS
                 return false;
             }
 
-            var processContextFactory = new ArmProcessContextFactory();
+            var processContextFactory = new ArmProcessContextFactory(context.Device.System.CpuEngine, context.Device.Gpu);
 
             result = process.Initialize(
                 creationInfo,
-                metaData.Aci0.KernelAccessControl.Capabilities,
+                MemoryMarshal.Cast<byte, int>(npdm.KernelCapabilityData).ToArray(),
                 resourceLimit,
                 memoryRegion,
                 processContextFactory);
@@ -262,9 +298,9 @@ namespace Ryujinx.HLE.HOS
                 }
             }
 
-            process.DefaultCpuCore = metaData.DefaultCpuId;
+            process.DefaultCpuCore = meta.DefaultCpuId;
 
-            result = process.Start(metaData.MainThreadPriority, (ulong)metaData.MainThreadStackSize);
+            result = process.Start(meta.MainThreadPriority, meta.MainThreadStackSize);
 
             if (result != KernelResult.Success)
             {
@@ -280,7 +316,8 @@ namespace Ryujinx.HLE.HOS
             // Keep the build ids because the tamper machine uses them to know which process to associate a
             // tamper to and also keep the starting address of each executable inside a process because some
             // memory modifications are relative to this address.
-            tamperInfo = new ProcessTamperInfo(process, buildIds, nsoBase, process.MemoryManager.HeapRegionStart);
+            tamperInfo = new ProcessTamperInfo(process, buildIds, nsoBase, process.MemoryManager.HeapRegionStart,
+                process.MemoryManager.AliasRegionStart, process.MemoryManager.CodeRegionStart);
 
             return true;
         }
@@ -312,7 +349,7 @@ namespace Ryujinx.HLE.HOS
                     return KernelResult.Success;
                 }
 
-                size = BitUtils.AlignUp(size, KMemoryManager.PageSize);
+                size = BitUtils.AlignUp<ulong>(size, KPageTableBase.PageSize);
 
                 return process.MemoryManager.SetProcessMemoryPermission(address, size, permission);
             }

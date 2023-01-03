@@ -1,4 +1,3 @@
-using Ryujinx.Graphics.Gpu.Shader.Cache.Definition;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
@@ -239,25 +238,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         public TextureMsaaMode UnpackTextureMsaaMode()
         {
             return (TextureMsaaMode)((Word7 >> 8) & 0xf);
-        }
-
-        /// <summary>
-        /// Create the equivalent of this TextureDescriptor for the shader cache.
-        /// </summary>
-        /// <returns>The equivalent of this TextureDescriptor for the shader cache.</returns>
-        public GuestTextureDescriptor ToCache()
-        {
-            GuestTextureDescriptor result = new GuestTextureDescriptor
-            {
-                Handle = uint.MaxValue,
-                Format = UnpackFormat(),
-                Target = UnpackTextureTarget(),
-                IsSrgb = UnpackSrgb(),
-                IsTextureCoordNormalized = UnpackTextureCoordNormalized(),
-
-            };
-
-            return result;
         }
 
         /// <summary>

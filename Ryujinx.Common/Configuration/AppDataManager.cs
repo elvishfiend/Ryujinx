@@ -34,6 +34,7 @@ namespace Ryujinx.Common.Configuration
         private const string DefaultModsDir = "mods";
 
         public static string CustomModsPath { get; set; }
+        public static string CustomSdModsPath {get; set; }
         public static string CustomNandPath { get; set; } // TODO: Actually implement this into VFS
         public static string CustomSdCardPath { get; set; } // TODO: Actually implement this into VFS
 
@@ -44,7 +45,14 @@ namespace Ryujinx.Common.Configuration
 
         public static void Initialize(string baseDirPath)
         {
-            string userProfilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), DefaultBaseDir);
+            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+            if (appDataPath.Length == 0)
+            {
+                appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            }
+
+            string userProfilePath = Path.Combine(appDataPath, DefaultBaseDir);
             string portablePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, DefaultPortableDir);
 
             if (Directory.Exists(portablePath))
@@ -84,6 +92,7 @@ namespace Ryujinx.Common.Configuration
             Directory.CreateDirectory(KeysDirPath = Path.Combine(BaseDirPath, KeysDir));
         }
 
-        public static string GetModsPath() => CustomModsPath ?? Directory.CreateDirectory(Path.Combine(BaseDirPath, DefaultModsDir)).FullName;
+        public static string GetModsPath()   => CustomModsPath ?? Directory.CreateDirectory(Path.Combine(BaseDirPath, DefaultModsDir)).FullName;
+        public static string GetSdModsPath() => CustomSdModsPath ?? Directory.CreateDirectory(Path.Combine(BaseDirPath, DefaultSdcardDir, "atmosphere")).FullName;
     }
 }

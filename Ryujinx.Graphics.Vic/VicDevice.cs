@@ -1,5 +1,4 @@
-﻿using Ryujinx.Common.Logging;
-using Ryujinx.Graphics.Device;
+﻿using Ryujinx.Graphics.Device;
 using Ryujinx.Graphics.Gpu.Memory;
 using Ryujinx.Graphics.Vic.Image;
 using Ryujinx.Graphics.Vic.Types;
@@ -14,9 +13,6 @@ namespace Ryujinx.Graphics.Vic
         private readonly ResourceManager _rm;
         private readonly DeviceState<VicRegisters> _state;
 
-        private PlaneOffsets _overrideOffsets;
-        private bool _hasOverride;
-
         public VicDevice(MemoryManager gmm)
         {
             _gmm = gmm;
@@ -25,32 +21,6 @@ namespace Ryujinx.Graphics.Vic
             {
                 { nameof(VicRegisters.Execute), new RwCallback(Execute, null) }
             });
-        }
-
-        /// <summary>
-        /// Overrides all input surfaces with a custom surface.
-        /// </summary>
-        /// <param name="lumaOffset">Offset of the luma plane or packed data for this surface</param>
-        /// <param name="chromaUOffset">Offset of the U chroma plane (for planar formats) or both chroma planes (for semiplanar formats)</param>
-        /// <param name="chromaVOffset">Offset of the V chroma plane for planar formats</param>
-        public void SetSurfaceOverride(uint lumaOffset, uint chromaUOffset, uint chromaVOffset)
-        {
-            _overrideOffsets.LumaOffset = lumaOffset;
-            _overrideOffsets.ChromaUOffset = chromaUOffset;
-            _overrideOffsets.ChromaVOffset = chromaVOffset;
-            _hasOverride = true;
-        }
-
-        /// <summary>
-        /// Disables overriding input surfaces.
-        /// </summary>
-        /// <remarks>
-        /// Surface overrides are disabled by default.
-        /// Call this if you previously called <see cref="SetSurfaceOverride(uint, uint, uint)"/> and which to disable it.
-        /// </remarks>
-        public void DisableSurfaceOverride()
-        {
-            _hasOverride = false;
         }
 
         public int Read(int offset) => _state.Read(offset);
@@ -74,16 +44,23 @@ namespace Ryujinx.Graphics.Vic
                     continue;
                 }
 
-                var offsets = _state.State.SetSurfacexSlotx[i][0];
+                ref var offsets = ref _state.State.SetSurfacexSlotx[i];
 
-                if (_hasOverride)
-                {
-                    offsets = _overrideOffsets;
-                }
+                using Surface src = SurfaceReader.Read(_rm, ref slot.SlotConfig, ref slot.SlotSurfaceConfig, ref offsets);
 
-                using Surface src = SurfaceReader.Read(_rm, ref slot.SlotSurfaceConfig, ref offsets);
+                int x1 = config.OutputConfig.TargetRectLeft;
+                int y1 = config.OutputConfig.TargetRectTop;
+                int x2 = config.OutputConfig.TargetRectRight + 1;
+                int y2 = config.OutputConfig.TargetRectBottom + 1;
 
-                Blender.BlendOne(output, src, ref slot);
+                int targetX = Math.Min(x1, x2);
+                int targetY = Math.Min(y1, y2);
+                int targetW = Math.Min(output.Width - targetX, Math.Abs(x2 - x1));
+                int targetH = Math.Min(output.Height - targetY, Math.Abs(y2 - y1));
+
+                Rectangle targetRect = new Rectangle(targetX, targetY, targetW, targetH);
+
+                Blender.BlendOne(output, src, ref slot, targetRect);
             }
 
             SurfaceWriter.Write(_rm, output, ref config.OutputSurfaceConfig, ref _state.State.SetOutputSurface);

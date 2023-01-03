@@ -3,7 +3,9 @@ using LibHac.Common;
 using LibHac.Fs;
 using LibHac.Fs.Fsa;
 using LibHac.FsSystem;
-using LibHac.FsSystem.NcaUtils;
+using LibHac.Tools.Fs;
+using LibHac.Tools.FsSystem;
+using LibHac.Tools.FsSystem.NcaUtils;
 using Ryujinx.Common.Configuration;
 using Ryujinx.HLE.FileSystem;
 using Ryujinx.Ui.Widgets;
@@ -19,10 +21,10 @@ namespace Ryujinx.Ui.Windows
 {
     public class DlcWindow : Window
     {
-        private readonly VirtualFileSystem  _virtualFileSystem;
-        private readonly string             _titleId;
-        private readonly string             _dlcJsonPath;
-        private readonly List<DlcContainer> _dlcContainerList;
+        private readonly VirtualFileSystem                  _virtualFileSystem;
+        private readonly string                             _titleId;
+        private readonly string                             _dlcJsonPath;
+        private readonly List<DownloadableContentContainer> _dlcContainerList;
 
 #pragma warning disable CS0649, IDE0044
         [GUI] Label         _baseTitleInfoLabel;
@@ -32,7 +34,7 @@ namespace Ryujinx.Ui.Windows
 
         public DlcWindow(VirtualFileSystem virtualFileSystem, string titleId, string titleName) : this(new Builder("Ryujinx.Ui.Windows.DlcWindow.glade"), virtualFileSystem, titleId, titleName) { }
 
-        private DlcWindow(Builder builder, VirtualFileSystem virtualFileSystem, string titleId, string titleName) : base(builder.GetObject("_dlcWindow").Handle)
+        private DlcWindow(Builder builder, VirtualFileSystem virtualFileSystem, string titleId, string titleName) : base(builder.GetRawOwnedObject("_dlcWindow"))
         {
             builder.Autoconnect(this);
 
@@ -43,11 +45,11 @@ namespace Ryujinx.Ui.Windows
 
             try
             {
-                _dlcContainerList = JsonHelper.DeserializeFromFile<List<DlcContainer>>(_dlcJsonPath);
+                _dlcContainerList = JsonHelper.DeserializeFromFile<List<DownloadableContentContainer>>(_dlcJsonPath);
             }
             catch
             {
-                _dlcContainerList = new List<DlcContainer>();
+                _dlcContainerList = new List<DownloadableContentContainer>();
             }
             
             _dlcTreeView.Model = new TreeStore(typeof(bool), typeof(string), typeof(string));
@@ -73,23 +75,37 @@ namespace Ryujinx.Ui.Windows
             _dlcTreeView.AppendColumn("TitleId", new CellRendererText(), "text",   1);
             _dlcTreeView.AppendColumn("Path",    new CellRendererText(), "text",   2);
 
-            foreach (DlcContainer dlcContainer in _dlcContainerList)
+            foreach (DownloadableContentContainer dlcContainer in _dlcContainerList)
             {
-                TreeIter parentIter = ((TreeStore)_dlcTreeView.Model).AppendValues(false, "", dlcContainer.Path);
-
-                using FileStream containerFile = File.OpenRead(dlcContainer.Path);
-                PartitionFileSystem pfs = new PartitionFileSystem(containerFile.AsStorage());
-                _virtualFileSystem.ImportTickets(pfs);
-
-                foreach (DlcNca dlcNca in dlcContainer.DlcNcaList)
+                if (File.Exists(dlcContainer.ContainerPath))
                 {
-                    pfs.OpenFile(out IFile ncaFile, dlcNca.Path.ToU8Span(), OpenMode.Read).ThrowIfFailure();
-                    Nca nca = TryCreateNca(ncaFile.AsStorage(), dlcContainer.Path);
-                    
-                    if (nca != null)
+                    // The parent tree item has its own "enabled" check box, but it's the actual
+                    // nca entries that store the enabled / disabled state. A bit of a UI inconsistency.
+                    // Maybe a tri-state check box would be better, but for now we check the parent
+                    // "enabled" box if all child NCAs are enabled. Usually fine since each nsp has only one nca.
+                    bool areAllContentPacksEnabled = dlcContainer.DownloadableContentNcaList.TrueForAll((nca) => nca.Enabled);
+                    TreeIter parentIter = ((TreeStore)_dlcTreeView.Model).AppendValues(areAllContentPacksEnabled, "", dlcContainer.ContainerPath);
+                    using FileStream containerFile = File.OpenRead(dlcContainer.ContainerPath);
+                    PartitionFileSystem pfs = new PartitionFileSystem(containerFile.AsStorage());
+                    _virtualFileSystem.ImportTickets(pfs);
+
+                    foreach (DownloadableContentNca dlcNca in dlcContainer.DownloadableContentNcaList)
                     {
-                        ((TreeStore)_dlcTreeView.Model).AppendValues(parentIter, dlcNca.Enabled, nca.Header.TitleId.ToString("X16"), dlcNca.Path);
+                        using var ncaFile = new UniqueRef<IFile>();
+
+                        pfs.OpenFile(ref ncaFile.Ref(), dlcNca.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+                        Nca nca = TryCreateNca(ncaFile.Get.AsStorage(), dlcContainer.ContainerPath);
+
+                        if (nca != null)
+                        {
+                            ((TreeStore)_dlcTreeView.Model).AppendValues(parentIter, dlcNca.Enabled, nca.Header.TitleId.ToString("X16"), dlcNca.FullPath);
+                        }
                     }
+                }
+                else
+                {
+                    // DLC file moved or renamed. Allow the user to remove it without crashing the whole dialog.
+                    TreeIter parentIter = ((TreeStore)_dlcTreeView.Model).AppendValues(false, "", $"(MISSING) {dlcContainer.ContainerPath}");
                 }
             }
         }
@@ -110,13 +126,18 @@ namespace Ryujinx.Ui.Windows
 
         private void AddButton_Clicked(object sender, EventArgs args)
         {
-            FileChooserDialog fileChooser = new FileChooserDialog("Select DLC files", this, FileChooserAction.Open, "Cancel", ResponseType.Cancel, "Add", ResponseType.Accept)
+            FileChooserNative fileChooser = new FileChooserNative("Select DLC files", this, FileChooserAction.Open, "Add", "Cancel")
             {
-                SelectMultiple = true,
-                Filter         = new FileFilter()
+                SelectMultiple = true
             };
-            fileChooser.SetPosition(WindowPosition.Center);
-            fileChooser.Filter.AddPattern("*.nsp");
+
+            FileFilter filter = new FileFilter()
+            {
+                Name = "Switch Game DLCs"
+            };
+            filter.AddPattern("*.nsp");
+
+            fileChooser.AddFilter(filter);
 
             if (fileChooser.Run() == (int)ResponseType.Accept)
             {
@@ -138,9 +159,11 @@ namespace Ryujinx.Ui.Windows
 
                         foreach (DirectoryEntryEx fileEntry in pfs.EnumerateEntries("/", "*.nca"))
                         {
-                            pfs.OpenFile(out IFile ncaFile, fileEntry.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+                            using var ncaFile = new UniqueRef<IFile>();
 
-                            Nca nca = TryCreateNca(ncaFile.AsStorage(), containerPath);
+                            pfs.OpenFile(ref ncaFile.Ref(), fileEntry.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+
+                            Nca nca = TryCreateNca(ncaFile.Get.AsStorage(), containerPath);
 
                             if (nca == null) continue;
 
@@ -214,19 +237,19 @@ namespace Ryujinx.Ui.Windows
                 {
                     if (_dlcTreeView.Model.IterChildren(out TreeIter childIter, parentIter))
                     {
-                        DlcContainer dlcContainer = new DlcContainer
+                        DownloadableContentContainer dlcContainer = new DownloadableContentContainer
                         {
-                            Path       = (string)_dlcTreeView.Model.GetValue(parentIter, 2),
-                            DlcNcaList = new List<DlcNca>()
+                            ContainerPath              = (string)_dlcTreeView.Model.GetValue(parentIter, 2),
+                            DownloadableContentNcaList = new List<DownloadableContentNca>()
                         };
 
                         do
                         {
-                            dlcContainer.DlcNcaList.Add(new DlcNca
+                            dlcContainer.DownloadableContentNcaList.Add(new DownloadableContentNca
                             {
-                                Enabled = (bool)_dlcTreeView.Model.GetValue(childIter, 0),
-                                TitleId = Convert.ToUInt64(_dlcTreeView.Model.GetValue(childIter, 1).ToString(), 16),
-                                Path    = (string)_dlcTreeView.Model.GetValue(childIter, 2)
+                                Enabled  = (bool)_dlcTreeView.Model.GetValue(childIter, 0),
+                                TitleId  = Convert.ToUInt64(_dlcTreeView.Model.GetValue(childIter, 1).ToString(), 16),
+                                FullPath = (string)_dlcTreeView.Model.GetValue(childIter, 2)
                             });
                         }
                         while (_dlcTreeView.Model.IterNext(ref childIter));

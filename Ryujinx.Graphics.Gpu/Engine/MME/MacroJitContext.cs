@@ -1,5 +1,5 @@
 ﻿using Ryujinx.Common.Logging;
-using Ryujinx.Graphics.Gpu.State;
+using Ryujinx.Graphics.Device;
 using System.Collections.Generic;
 
 namespace Ryujinx.Graphics.Gpu.Engine.MME
@@ -12,22 +12,22 @@ namespace Ryujinx.Graphics.Gpu.Engine.MME
         /// <summary>
         /// Arguments FIFO.
         /// </summary>
-        public Queue<int> Fifo { get; } = new Queue<int>();
+        public Queue<FifoWord> Fifo { get; } = new Queue<FifoWord>();
 
         /// <summary>
         /// Fetches a arguments from the arguments FIFO.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>The call argument, or 0 if the FIFO is empty</returns>
         public int FetchParam()
         {
-            if (!Fifo.TryDequeue(out int value))
+            if (!Fifo.TryDequeue(out var value))
             {
                 Logger.Warning?.Print(LogClass.Gpu, "Macro attempted to fetch an inexistent argument.");
 
                 return 0;
             }
 
-            return value;
+            return value.Word;
         }
 
         /// <summary>
@@ -36,9 +36,9 @@ namespace Ryujinx.Graphics.Gpu.Engine.MME
         /// <param name="state">Current GPU state</param>
         /// <param name="reg">Register offset to read</param>
         /// <returns>GPU register value</returns>
-        public static int Read(GpuState state, int reg)
+        public static int Read(IDeviceState state, int reg)
         {
-            return state.Read(reg);
+            return state.Read(reg * 4);
         }
 
         /// <summary>
@@ -47,11 +47,9 @@ namespace Ryujinx.Graphics.Gpu.Engine.MME
         /// <param name="value">Call argument</param>
         /// <param name="state">Current GPU state</param>
         /// <param name="methAddr">Address, in words, of the method</param>
-        public static void Send(int value, GpuState state, int methAddr)
+        public static void Send(int value, IDeviceState state, int methAddr)
         {
-            MethodParams meth = new MethodParams(methAddr, value);
-
-            state.CallMethod(meth);
+            state.Write(methAddr * 4, value);
         }
     }
 }

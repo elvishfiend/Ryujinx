@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Generated with glade 3.22.1 -->
+<!-- Generated with glade 3.21.0 -->
 <interface>
   <requires lib="gtk+" version="3.20"/>
   <object class="GtkApplicationWindow" id="_mainWin">
     <property name="can_focus">False</property>
     <property name="title" translatable="yes">Ryujinx</property>
     <property name="window_position">center</property>
-    <child type="titlebar">
-      <placeholder/>
-    </child>
     <child>
       <object class="GtkBox" id="_box">
         <property name="visible">True</property>
@@ -19,7 +16,7 @@
             <property name="visible">True</property>
             <property name="can_focus">False</property>
             <child>
-              <object class="GtkMenuItem" id="FileMenu">
+              <object class="GtkMenuItem" id="_fileMenu">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="label" translatable="yes">File</property>
@@ -29,23 +26,47 @@
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
                     <child>
-                      <object class="GtkMenuItem" id="LoadApplicationFile">
+                      <object class="GtkMenuItem" id="_loadApplicationFile">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
-                        <property name="tooltip_text" translatable="yes">Open a file chooser to chose a switch compatible file to load</property>
+                        <property name="tooltip_text" translatable="yes">Open a file explorer to choose a Switch compatible file to load</property>
                         <property name="label" translatable="yes">Load Application from File</property>
                         <property name="use_underline">True</property>
                         <signal name="activate" handler="Load_Application_File" swapped="no"/>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkMenuItem" id="LoadApplicationFolder">
+                      <object class="GtkMenuItem" id="_loadApplicationFolder">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
-                        <property name="tooltip_text" translatable="yes">Open a file chooser to chose a switch compatible, unpacked application to load</property>
+                        <property name="tooltip_text" translatable="yes">Open a file explorer to choose a Switch compatible, unpacked application to load</property>
                         <property name="label" translatable="yes">Load Unpacked Game</property>
                         <property name="use_underline">True</property>
                         <signal name="activate" handler="Load_Application_Folder" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="_appletMenu">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="label" translatable="yes">Load Applet</property>
+                        <property name="use_underline">True</property>
+                        <child type="submenu">
+                          <object class="GtkMenu">
+                            <property name="visible">True</property>
+                            <property name="can_focus">False</property>
+                            <child>
+                              <object class="GtkMenuItem" id="LoadMiiEditApplet">
+                                <property name="visible">True</property>
+                                <property name="can_focus">False</property>
+                                <property name="tooltip_text" translatable="yes">Open Mii Editor Applet in Standalone mode</property>
+                                <property name="label" translatable="yes">Mii Editor</property>
+                                <property name="use_underline">True</property>
+                                <signal name="activate" handler="Load_Mii_Edit_Applet" swapped="no"/>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>
@@ -119,6 +140,15 @@
                         <property name="label" translatable="yes">Start Games in Fullscreen Mode</property>
                         <property name="use_underline">True</property>
                         <signal name="toggled" handler="StartFullScreen_Toggled" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCheckMenuItem" id="_showConsole">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="label" translatable="yes">Show Log Console</property>
+                        <property name="use_underline">True</property>
+                        <signal name="toggled" handler="ShowConsole_Toggled" swapped="no"/>
                       </object>
                     </child>
                     <child>
@@ -248,6 +278,16 @@
                         <signal name="activate" handler="Settings_Pressed" swapped="no"/>
                       </object>
                     </child>
+                    <child>
+                      <object class="GtkMenuItem" id="_manageUserProfiles">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="tooltip_text" translatable="yes">Open User Profiles Manager window</property>
+                        <property name="label" translatable="yes">Manage User Profiles</property>
+                        <property name="use_underline">True</property>
+                        <signal name="activate" handler="ManageUserProfiles_Pressed" swapped="no"/>
+                      </object>
+                    </child>
                   </object>
                 </child>
               </object>
@@ -262,6 +302,26 @@
                   <object class="GtkMenu">
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
+                    <child>
+                      <object class="GtkMenuItem" id="_pauseEmulation">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="tooltip_text" translatable="yes">Pause emulation</property>
+                        <property name="label" translatable="yes">Pause Emulation</property>
+                        <property name="use_underline">True</property>
+                        <signal name="activate" handler="PauseEmulation_Pressed" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="_resumeEmulation">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="tooltip_text" translatable="yes">Resume emulation</property>
+                        <property name="label" translatable="yes">Resume Emulation</property>
+                        <property name="use_underline">True</property>
+                        <signal name="activate" handler="ResumeEmulation_Pressed" swapped="no"/>
+                      </object>
+                    </child>
                     <child>
                       <object class="GtkMenuItem" id="_stopEmulation">
                         <property name="visible">True</property>
@@ -296,6 +356,32 @@
                         <property name="label" translatable="yes">Scan an Amiibo</property>
                         <property name="use_underline">True</property>
                         <signal name="activate" handler="Scan_Amiibo" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="_takeScreenshot">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="tooltip_text" translatable="yes">Take a screenshot</property>
+                        <property name="label" translatable="yes">Take Screenshot</property>
+                        <signal name="activate" handler="Take_Screenshot" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="_hideUi">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="label" translatable="yes">Hide UI (SHOWUIKEY to show)</property>
+                        <property name="use_underline">True</property>
+                        <signal name="activate" handler="HideUi_Pressed" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="_manageCheats">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="label" translatable="yes">Manage Cheats</property>
+                        <signal name="activate" handler="ManageCheats_Pressed" swapped="no"/>
                       </object>
                     </child>
                   </object>
@@ -513,7 +599,6 @@
                       <object class="GtkEventBox">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
-                        <property name="margin_left">0</property>
                         <signal name="button-release-event" handler="VSyncStatus_Clicked" swapped="no"/>
                         <child>
                           <object class="GtkLabel" id="_vSyncStatus">
@@ -547,7 +632,6 @@
                       <object class="GtkEventBox">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
-                        <property name="margin_left">0</property>
                         <signal name="button-release-event" handler="DockedMode_Clicked" swapped="no"/>
                         <child>
                           <object class="GtkLabel" id="_dockedMode">
@@ -580,10 +664,9 @@
                       <object class="GtkEventBox">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
-                        <property name="margin_left">0</property>
-                        <signal name="button-release-event" handler="AspectRatio_Clicked" swapped="no"/>
+                        <signal name="button-release-event" handler="VolumeStatus_Clicked" swapped="no"/>
                         <child>
-                          <object class="GtkLabel" id="_aspectRatio">
+                          <object class="GtkLabel" id="_volumeStatus">
                             <property name="visible">True</property>
                             <property name="can_focus">False</property>
                             <property name="halign">start</property>
@@ -610,12 +693,19 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkLabel" id="_gameStatus">
+                      <object class="GtkEventBox">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
-                        <property name="halign">start</property>
-                        <property name="margin_left">5</property>
-                        <property name="margin_right">5</property>
+                        <signal name="button-release-event" handler="AspectRatio_Clicked" swapped="no"/>
+                        <child>
+                          <object class="GtkLabel" id="_aspectRatio">
+                            <property name="visible">True</property>
+                            <property name="can_focus">False</property>
+                            <property name="halign">start</property>
+                            <property name="margin_left">5</property>
+                            <property name="margin_right">5</property>
+                          </object>
+                        </child>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -635,7 +725,7 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkLabel" id="_fifoStatus">
+                      <object class="GtkLabel" id="_gameStatus">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <property name="halign">start</property>
@@ -660,6 +750,56 @@
                       </packing>
                     </child>
                     <child>
+                      <object class="GtkLabel" id="_fifoStatus">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="halign">start</property>
+                        <property name="margin_left">5</property>
+                        <property name="margin_right">5</property>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">10</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkSeparator">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">11</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkLabel" id="_gpuBackend">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="halign">start</property>
+                        <property name="margin_left">5</property>
+                        <property name="margin_right">5</property>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">12</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkSeparator">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">13</property>
+                      </packing>
+                    </child>
+                    <child>
                       <object class="GtkLabel" id="_gpuName">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
@@ -670,7 +810,7 @@
                       <packing>
                         <property name="expand">True</property>
                         <property name="fill">True</property>
-                        <property name="position">10</property>
+                        <property name="position">14</property>
                       </packing>
                     </child>
                   </object>
@@ -679,35 +819,6 @@
                     <property name="fill">True</property>
                     <property name="position">1</property>
                   </packing>
-                </child>
-                  <child>
-                    <object class="GtkLabel" id="_loadingStatusLabel">
-                      <property name="can_focus">False</property>
-                      <property name="margin_left">5</property>
-                      <property name="margin_right">5</property>
-                      <property name="label" translatable="yes">0/0 </property>
-                      <property name="visible">False</property>
-                    </object>
-                    <packing>
-                      <property name="expand">False</property>
-                      <property name="fill">True</property>
-                      <property name="position">11</property>
-                    </packing>
-                  </child>
-                  <child>
-                    <object class="GtkProgressBar" id="_loadingStatusBar">
-                      <property name="width_request">200</property>
-                      <property name="can_focus">False</property>
-                      <property name="margin_left">5</property>
-                      <property name="margin_right">5</property>
-                      <property name="margin_bottom">6</property>
-                      <property name="visible">False</property>
-                    </object>
-                    <packing>
-                      <property name="expand">False</property>
-                      <property name="fill">True</property>
-                      <property name="position">12</property>
-                    </packing>
                 </child>
                 <child>
                   <object class="GtkBox">
@@ -749,6 +860,33 @@
                     <property name="position">4</property>
                   </packing>
                 </child>
+                <child>
+                  <object class="GtkLabel" id="_loadingStatusLabel">
+                    <property name="can_focus">False</property>
+                    <property name="margin_left">5</property>
+                    <property name="margin_right">5</property>
+                    <property name="label" translatable="yes">0/0 </property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">11</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkProgressBar" id="_loadingStatusBar">
+                    <property name="width_request">200</property>
+                    <property name="can_focus">False</property>
+                    <property name="margin_left">5</property>
+                    <property name="margin_right">5</property>
+                    <property name="margin_bottom">6</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">12</property>
+                  </packing>
+                </child>
               </object>
               <packing>
                 <property name="expand">False</property>
@@ -764,6 +902,9 @@
           </packing>
         </child>
       </object>
+    </child>
+    <child type="titlebar">
+      <placeholder/>
     </child>
   </object>
 </interface>

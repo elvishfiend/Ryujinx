@@ -1,62 +1,26 @@
+using System;
+using System.Numerics;
+
 namespace Ryujinx.Common
 {
     public static class BitUtils
     {
-        private static readonly byte[] ClzNibbleTbl = { 4, 3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
-
-        public static uint AlignUp(uint value, int size)
+        public static T AlignUp<T>(T value, T size)
+            where T : IBinaryInteger<T>
         {
-            return (uint)AlignUp((int)value, size);
+            return (value + (size - T.One)) & -size;
         }
 
-        public static int AlignUp(int value, int size)
-        {
-            return (value + (size - 1)) & -size;
-        }
-
-        public static ulong AlignUp(ulong value, int size)
-        {
-            return (ulong)AlignUp((long)value, size);
-        }
-
-        public static long AlignUp(long value, int size)
-        {
-            return (value + (size - 1)) & -(long)size;
-        }
-
-        public static uint AlignDown(uint value, int size)
-        {
-            return (uint)AlignDown((int)value, size);
-        }
-
-        public static int AlignDown(int value, int size)
+        public static T AlignDown<T>(T value, T size)
+            where T : IBinaryInteger<T>
         {
             return value & -size;
         }
 
-        public static ulong AlignDown(ulong value, int size)
+        public static T DivRoundUp<T>(T value, T dividend)
+            where T : IBinaryInteger<T>
         {
-            return (ulong)AlignDown((long)value, size);
-        }
-
-        public static long AlignDown(long value, int size)
-        {
-            return value & -(long)size;
-        }
-
-        public static int DivRoundUp(int value, int dividend)
-        {
-            return (value + dividend - 1) / dividend;
-        }
-
-        public static ulong DivRoundUp(ulong value, uint dividend)
-        {
-            return (value + dividend - 1) / dividend;
-        }
-
-        public static long DivRoundUp(long value, int dividend)
-        {
-            return (value + dividend - 1) / dividend;
+            return (value + (dividend - T.One)) / dividend;
         }
 
         public static int Pow2RoundUp(int value)
@@ -74,60 +38,7 @@ namespace Ryujinx.Common
 
         public static int Pow2RoundDown(int value)
         {
-            return IsPowerOfTwo32(value) ? value : Pow2RoundUp(value) >> 1;
-        }
-
-        public static bool IsPowerOfTwo32(int value)
-        {
-            return value != 0 && (value & (value - 1)) == 0;
-        }
-
-        public static bool IsPowerOfTwo64(long value)
-        {
-            return value != 0 && (value & (value - 1)) == 0;
-        }
-
-        public static int CountLeadingZeros32(int value)
-        {
-            return (int)CountLeadingZeros((ulong)value, 32);
-        }
-
-        public static int CountLeadingZeros64(long value)
-        {
-            return (int)CountLeadingZeros((ulong)value, 64);
-        }
-
-        private static ulong CountLeadingZeros(ulong value, int size)
-        {
-            if (value == 0ul)
-            {
-                return (ulong)size;
-            }
-
-            int nibbleIdx = size;
-            int preCount, count = 0;
-
-            do
-            {
-                nibbleIdx -= 4;
-                preCount = ClzNibbleTbl[(int)(value >> nibbleIdx) & 0b1111];
-                count += preCount;
-            }
-            while (preCount == 4);
-
-            return (ulong)count;
-        }
-
-        public static int CountTrailingZeros32(int value)
-        {
-            int count = 0;
-
-            while (((value >> count) & 1) == 0)
-            {
-                count++;
-            }
-
-            return count;
+            return BitOperations.IsPow2(value) ? value : Pow2RoundUp(value) >> 1;
         }
 
         public static long ReverseBits64(long value)

@@ -1,11 +1,12 @@
 using Ryujinx.Graphics.Shader.IntermediateRepresentation;
+using Ryujinx.Graphics.Shader.Translation;
 using System;
 
 namespace Ryujinx.Graphics.Shader.StructuredIr
 {
     static class OperandInfo
     {
-        public static VariableType GetVarType(AstOperand operand)
+        public static AggregateType GetVarType(AstOperand operand)
         {
             if (operand.Type == OperandType.LocalVariable)
             {
@@ -17,17 +18,18 @@ namespace Ryujinx.Graphics.Shader.StructuredIr
             }
         }
 
-        public static VariableType GetVarType(OperandType type)
+        public static AggregateType GetVarType(OperandType type)
         {
-            switch (type)
+            return type switch
             {
-                case OperandType.Attribute:      return VariableType.F32;
-                case OperandType.Constant:       return VariableType.S32;
-                case OperandType.ConstantBuffer: return VariableType.F32;
-                case OperandType.Undefined:      return VariableType.S32;
-            }
-
-            throw new ArgumentException($"Invalid operand type \"{type}\".");
+                OperandType.Argument => AggregateType.S32,
+                OperandType.Attribute => AggregateType.FP32,
+                OperandType.AttributePerPatch => AggregateType.FP32,
+                OperandType.Constant => AggregateType.S32,
+                OperandType.ConstantBuffer => AggregateType.FP32,
+                OperandType.Undefined => AggregateType.S32,
+                _ => throw new ArgumentException($"Invalid operand type \"{type}\".")
+            };
         }
     }
 }

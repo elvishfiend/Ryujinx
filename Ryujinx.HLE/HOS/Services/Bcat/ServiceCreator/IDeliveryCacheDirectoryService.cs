@@ -1,63 +1,65 @@
 ﻿using LibHac;
 using LibHac.Bcat;
+using LibHac.Common;
 using Ryujinx.Common;
-using System;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator
 {
-    class IDeliveryCacheDirectoryService : IpcService, IDisposable
+    class IDeliveryCacheDirectoryService : DisposableIpcService
     {
-        private LibHac.Bcat.Detail.Ipc.IDeliveryCacheDirectoryService _base;
+        private SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheDirectoryService> _base;
 
-        public IDeliveryCacheDirectoryService(LibHac.Bcat.Detail.Ipc.IDeliveryCacheDirectoryService baseService)
+        public IDeliveryCacheDirectoryService(ref SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheDirectoryService> baseService)
         {
-            _base = baseService;
+            _base = SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheDirectoryService>.CreateMove(ref baseService);
         }
 
-        [Command(0)]
+        protected override void Dispose(bool isDisposing)
+        {
+            if (isDisposing)
+            {
+                _base.Destroy();
+            }
+        }
+
+        [CommandHipc(0)]
         // Open(nn::bcat::DirectoryName)
         public ResultCode Open(ServiceCtx context)
         {
             DirectoryName directoryName = context.RequestData.ReadStruct<DirectoryName>();
 
-            Result result = _base.Open(ref directoryName);
+            Result result = _base.Get.Open(ref directoryName);
 
             return (ResultCode)result.Value;
         }
 
-        [Command(1)]
+        [CommandHipc(1)]
         // Read() -> (u32, buffer<nn::bcat::DeliveryCacheDirectoryEntry, 6>)
         public ResultCode Read(ServiceCtx context)
         {
-            long position = context.Request.ReceiveBuff[0].Position;
-            long size = context.Request.ReceiveBuff[0].Size;
+            ulong bufferAddress = context.Request.ReceiveBuff[0].Position;
+            ulong bufferLen = context.Request.ReceiveBuff[0].Size;
 
-            byte[] data = new byte[size];
+            using (var region = context.Memory.GetWritableRegion(bufferAddress, (int)bufferLen, true))
+            {
+                Result result = _base.Get.Read(out int entriesRead, MemoryMarshal.Cast<byte, DeliveryCacheDirectoryEntry>(region.Memory.Span));
 
-            Result result = _base.Read(out int entriesRead, MemoryMarshal.Cast<byte, DeliveryCacheDirectoryEntry>(data));
+                context.ResponseData.Write(entriesRead);
 
-            context.Memory.Write((ulong)position, data);
-
-            context.ResponseData.Write(entriesRead);
-
-            return (ResultCode)result.Value;
+                return (ResultCode)result.Value;
+            }
         }
 
-        [Command(2)]
+        [CommandHipc(2)]
         // GetCount() -> u32
         public ResultCode GetCount(ServiceCtx context)
         {
-            Result result = _base.GetCount(out int count);
+            Result result = _base.Get.GetCount(out int count);
 
             context.ResponseData.Write(count);
 
             return (ResultCode)result.Value;
-        }
-
-        public void Dispose()
-        {
-            _base?.Dispose();
         }
     }
 }

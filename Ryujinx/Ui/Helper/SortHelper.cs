@@ -9,46 +9,56 @@ namespace Ryujinx.Ui.Helper
         {
             string aValue = model.GetValue(a, 5).ToString();
             string bValue = model.GetValue(b, 5).ToString();
+            float aFloat;
+            float bFloat;
 
-            if (aValue.Length > 4 && aValue[^4..] == "mins")
+            if (aValue.Length > 7 && aValue[^7..] == "minutes")
             {
-                aValue = (float.Parse(aValue[0..^5]) * 60).ToString();
+                aValue = aValue.Replace("minutes", "");
+                aFloat = (float.Parse(aValue) * 60);
             }
-            else if (aValue.Length > 3 && aValue[^3..] == "hrs")
+            else if (aValue.Length > 5 && aValue[^5..] == "hours")
             {
-                aValue = (float.Parse(aValue[0..^4]) * 3600).ToString();
+                aValue = aValue.Replace("hours", "");
+                aFloat = (float.Parse(aValue) * 3600);
             }
             else if (aValue.Length > 4 && aValue[^4..] == "days")
             {
-                aValue = (float.Parse(aValue[0..^5]) * 86400).ToString();
+                aValue = aValue.Replace("days", "");
+                aFloat = (float.Parse(aValue) * 86400);
             }
             else
             {
-                aValue = aValue[0..^1];
+                aValue = aValue.Replace("seconds", "");
+                aFloat = float.Parse(aValue);
             }
 
-            if (bValue.Length > 4 && bValue[^4..] == "mins")
+            if (bValue.Length > 7 && bValue[^7..] == "minutes")
             {
-                bValue = (float.Parse(bValue[0..^5]) * 60).ToString();
+                bValue = bValue.Replace("minutes", "");
+                bFloat = (float.Parse(bValue) * 60);
             }
-            else if (bValue.Length > 3 && bValue[^3..] == "hrs")
+            else if (bValue.Length > 5 && bValue[^5..] == "hours")
             {
-                bValue = (float.Parse(bValue[0..^4]) * 3600).ToString();
+                bValue = bValue.Replace("hours", "");
+                bFloat = (float.Parse(bValue) * 3600);
             }
             else if (bValue.Length > 4 && bValue[^4..] == "days")
             {
-                bValue = (float.Parse(bValue[0..^5]) * 86400).ToString();
+                bValue =  bValue.Replace("days", "");
+                bFloat = (float.Parse(bValue) * 86400);
             }
             else
             {
-                bValue = bValue[0..^1];
+                bValue = bValue[0..^8];
+                bFloat = float.Parse(bValue);
             }
 
-            if (float.Parse(aValue) > float.Parse(bValue))
+            if (aFloat > bFloat)
             {
                 return -1;
             }
-            else if (float.Parse(bValue) > float.Parse(aValue))
+            else if (bFloat > aFloat)
             {
                 return 1;
             }
@@ -81,22 +91,22 @@ namespace Ryujinx.Ui.Helper
             string aValue = model.GetValue(a, 8).ToString();
             string bValue = model.GetValue(b, 8).ToString();
 
-            if (aValue[^2..] == "GB")
+            if (aValue[^3..] == "GiB")
             {
-                aValue = (float.Parse(aValue[0..^2]) * 1024).ToString();
+                aValue = (float.Parse(aValue[0..^3]) * 1024).ToString();
             }
             else
             {
-                aValue = aValue[0..^2];
+                aValue = aValue[0..^3];
             }
 
-            if (bValue[^2..] == "GB")
+            if (bValue[^3..] == "GiB")
             {
-                bValue = (float.Parse(bValue[0..^2]) * 1024).ToString();
+                bValue = (float.Parse(bValue[0..^3]) * 1024).ToString();
             }
             else
             {
-                bValue = bValue[0..^2];
+                bValue = bValue[0..^3];
             }
 
             if (float.Parse(aValue) > float.Parse(bValue))

@@ -4,7 +4,7 @@ using ARMeilleure.State;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using static ARMeilleure.IntermediateRepresentation.OperandHelper;
+using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
 
 namespace ARMeilleure.Translation
 {
@@ -18,7 +18,7 @@ namespace ARMeilleure.Translation
             public DefMap()
             {
                 _map = new Dictionary<int, Operand>();
-                _phiMasks = new BitMap(RegisterConsts.TotalCount);
+                _phiMasks = new BitMap(Allocators.Default, RegisterConsts.TotalCount);
             }
 
             public bool TryAddOperand(int key, Operand operand)
@@ -45,7 +45,7 @@ namespace ARMeilleure.Translation
         public static void Construct(ControlFlowGraph cfg)
         {
             var globalDefs = new DefMap[cfg.Blocks.Count];
-            var localDefs = new Operand[RegisterConsts.TotalCount];
+            var localDefs = new Operand[cfg.LocalsCount + RegisterConsts.TotalCount];
 
             var dfPhiBlocks = new Queue<BasicBlock>();
 
@@ -57,26 +57,26 @@ namespace ARMeilleure.Translation
             // First pass, get all defs and locals uses.
             for (BasicBlock block = cfg.Blocks.First; block != null; block = block.ListNext)
             {
-                for (Node node = block.Operations.First; node != null; node = node.ListNext)
+                for (Operation node = block.Operations.First; node != default; node = node.ListNext)
                 {
-                    if (node is not Operation operation)
+                    for (int index = 0; index < node.SourcesCount; index++)
                     {
-                        continue;
-                    }
-
-                    for (int index = 0; index < operation.SourcesCount; index++)
-                    {
-                        Operand src = operation.GetSource(index);
+                        Operand src = node.GetSource(index);
 
                         if (TryGetId(src, out int srcKey))
                         {
-                            Operand local = localDefs[srcKey] ?? src;
+                            Operand local = localDefs[srcKey];
 
-                            operation.SetSource(index, local);
+                            if (local == default)
+                            {
+                                local = src;
+                            }
+
+                            node.SetSource(index, local);
                         }
                     }
 
-                    Operand dest = operation.Destination;
+                    Operand dest = node.Destination;
 
                     if (TryGetId(dest, out int destKey))
                     {
@@ -84,7 +84,7 @@ namespace ARMeilleure.Translation
 
                         localDefs[destKey] = local;
 
-                        operation.Destination = local;
+                        node.Destination = local;
                     }
                 }
 
@@ -92,7 +92,7 @@ namespace ARMeilleure.Translation
                 {
                     Operand local = localDefs[key];
 
-                    if (local is null)
+                    if (local == default)
                     {
                         continue;
                     }
@@ -113,39 +113,34 @@ namespace ARMeilleure.Translation
                     }
                 }
 
-                Array.Clear(localDefs, 0, localDefs.Length);
+                Array.Clear(localDefs);
             }
 
             // Second pass, rename variables with definitions on different blocks.
             for (BasicBlock block = cfg.Blocks.First; block != null; block = block.ListNext)
             {
-                for (Node node = block.Operations.First; node != null; node = node.ListNext)
+                for (Operation node = block.Operations.First; node != default; node = node.ListNext)
                 {
-                    if (node is not Operation operation)
+                    for (int index = 0; index < node.SourcesCount; index++)
                     {
-                        continue;
-                    }
-
-                    for (int index = 0; index < operation.SourcesCount; index++)
-                    {
-                        Operand src = operation.GetSource(index);
+                        Operand src = node.GetSource(index);
 
                         if (TryGetId(src, out int key))
                         {
                             Operand local = localDefs[key];
 
-                            if (local is null)
+                            if (local == default)
                             {
                                 local = FindDef(globalDefs, block, src);
                                 localDefs[key] = local;
                             }
 
-                            operation.SetSource(index, local);
+                            node.SetSource(index, local);
                         }
                     }
                 }
 
-                Array.Clear(localDefs, 0, localDefs.Length);
+                Array.Clear(localDefs);
             }
         }
 
@@ -200,11 +195,13 @@ namespace ARMeilleure.Translation
             // then use the definition from that Phi.
             Operand local = Local(operand.Type);
 
-            PhiNode phi = new PhiNode(local, block.Predecessors.Count);
+            Operation operation = Operation.Factory.PhiOperation(local, block.Predecessors.Count);
 
-            AddPhi(block, phi);
+            AddPhi(block, operation);
 
             globalDefs[block.Index].TryAddOperand(GetId(operand), local);
+
+            PhiOperation phi = operation.AsPhi();
 
             for (int index = 0; index < block.Predecessors.Count; index++)
             {
@@ -217,19 +214,19 @@ namespace ARMeilleure.Translation
             return local;
         }
 
-        private static void AddPhi(BasicBlock block, PhiNode phi)
+        private static void AddPhi(BasicBlock block, Operation phi)
         {
-            Node node = block.Operations.First;
+            Operation node = block.Operations.First;
 
-            if (node != null)
+            if (node != default)
             {
-                while (node.ListNext is PhiNode)
+                while (node.ListNext != default && node.ListNext.Instruction == Instruction.Phi)
                 {
                     node = node.ListNext;
                 }
             }
 
-            if (node is PhiNode)
+            if (node != default && node.Instruction == Instruction.Phi)
             {
                 block.Operations.AddAfter(node, phi);
             }
@@ -241,28 +238,37 @@ namespace ARMeilleure.Translation
 
         private static bool TryGetId(Operand operand, out int result)
         {
-            if (operand is { Kind: OperandKind.Register })
+            if (operand != default)
             {
-                Register reg = operand.GetRegister();
+                if (operand.Kind == OperandKind.Register)
+                {
+                    Register reg = operand.GetRegister();
 
-                if (reg.Type == RegisterType.Integer)
-                {
-                    result = reg.Index;
-                }
-                else if (reg.Type == RegisterType.Vector)
-                {
-                    result = RegisterConsts.IntRegsCount + reg.Index;
-                }
-                else if (reg.Type == RegisterType.Flag)
-                {
-                    result = RegisterConsts.IntAndVecRegsCount + reg.Index;
-                }
-                else /* if (reg.Type == RegisterType.FpFlag) */
-                {
-                    result = RegisterConsts.FpFlagsOffset + reg.Index;
-                }
+                    if (reg.Type == RegisterType.Integer)
+                    {
+                        result = reg.Index;
+                    }
+                    else if (reg.Type == RegisterType.Vector)
+                    {
+                        result = RegisterConsts.IntRegsCount + reg.Index;
+                    }
+                    else if (reg.Type == RegisterType.Flag)
+                    {
+                        result = RegisterConsts.IntAndVecRegsCount + reg.Index;
+                    }
+                    else /* if (reg.Type == RegisterType.FpFlag) */
+                    {
+                        result = RegisterConsts.FpFlagsOffset + reg.Index;
+                    }
 
-                return true;
+                    return true;
+                }
+                else if (operand.Kind == OperandKind.LocalVariable && operand.GetLocalNumber() > 0)
+                {
+                    result = RegisterConsts.TotalCount + operand.GetLocalNumber() - 1;
+
+                    return true;
+                }
             }
 
             result = -1;
@@ -274,7 +280,7 @@ namespace ARMeilleure.Translation
         {
             if (!TryGetId(operand, out int key))
             {
-                Debug.Fail("OperandKind must be Register.");
+                Debug.Fail("OperandKind must be Register or a numbered LocalVariable.");
             }
 
             return key;

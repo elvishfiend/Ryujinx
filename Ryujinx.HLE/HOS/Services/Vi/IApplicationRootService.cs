@@ -1,4 +1,5 @@
 using Ryujinx.HLE.HOS.Services.Vi.RootService;
+using Ryujinx.HLE.HOS.Services.Vi.Types;
 
 namespace Ryujinx.HLE.HOS.Services.Vi
 {
@@ -7,13 +8,18 @@ namespace Ryujinx.HLE.HOS.Services.Vi
     {
         public IApplicationRootService(ServiceCtx context) : base(context.Device.System.ViServer) { }
 
-        [Command(0)]
+        [CommandHipc(0)]
         // GetDisplayService(u32) -> object<nn::visrv::sf::IApplicationDisplayService>
         public ResultCode GetDisplayService(ServiceCtx context)
         {
-            int serviceType = context.RequestData.ReadInt32();
+            ViServiceType serviceType = (ViServiceType)context.RequestData.ReadInt32();
 
-            MakeObject(context, new IApplicationDisplayService());
+            if (serviceType != ViServiceType.Application)
+            {
+                return ResultCode.PermissionDenied;
+            }
+
+            MakeObject(context, new IApplicationDisplayService(serviceType));
 
             return ResultCode.Success;
         }

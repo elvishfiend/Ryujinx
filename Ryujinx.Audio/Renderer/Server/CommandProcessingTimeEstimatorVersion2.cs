@@ -1,20 +1,3 @@
-//
-// Copyright (c) 2019-2021 Ryujinx
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
-
 using Ryujinx.Audio.Renderer.Dsp.Command;
 using System;
 using System.Diagnostics;
@@ -537,6 +520,31 @@ namespace Ryujinx.Audio.Renderer.Server
         }
 
         public uint Estimate(DataSourceVersion2Command command)
+        {
+            return 0;
+        }
+
+        public uint Estimate(LimiterCommandVersion1 command)
+        {
+            return 0;
+        }
+
+        public uint Estimate(LimiterCommandVersion2 command)
+        {
+            return 0;
+        }
+
+        public uint Estimate(GroupedBiquadFilterCommand command)
+        {
+            return 0;
+        }
+
+        public uint Estimate(CaptureBufferCommand command)
+        {
+            return 0;
+        }
+
+        public uint Estimate(CompressorCommand command)
         {
             return 0;
         }

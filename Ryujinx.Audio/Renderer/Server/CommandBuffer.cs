@@ -1,20 +1,3 @@
-//
-// Copyright (c) 2019-2021 Ryujinx
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
-
 using Ryujinx.Audio.Renderer.Common;
 using Ryujinx.Audio.Renderer.Dsp.Command;
 using Ryujinx.Audio.Renderer.Dsp.State;
@@ -42,7 +25,7 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <summary>
         /// The estimated total processing time.
         /// </summary>
-        public ulong EstimatedProcessingTime { get; set; }
+        public uint EstimatedProcessingTime { get; set; }
 
         /// <summary>
         /// The command list that is populated by the <see cref="CommandBuffer"/>.
@@ -221,6 +204,25 @@ namespace Ryujinx.Audio.Renderer.Server
         }
 
         /// <summary>
+        /// Create a new <see cref="GroupedBiquadFilterCommand"/>.
+        /// </summary>
+        /// <param name="baseIndex">The base index of the input and output buffer.</param>
+        /// <param name="filters">The biquad filter parameters.</param>
+        /// <param name="biquadFilterStatesMemory">The biquad states.</param>
+        /// <param name="inputBufferOffset">The input buffer offset.</param>
+        /// <param name="outputBufferOffset">The output buffer offset.</param>
+        /// <param name="isInitialized">Set to true if the biquad filter state is initialized.</param>
+        /// <param name="nodeId">The node id associated to this command.</param>
+        public void GenerateGroupedBiquadFilter(int baseIndex, ReadOnlySpan<BiquadFilterParameter> filters, Memory<BiquadFilterState> biquadFilterStatesMemory, int inputBufferOffset, int outputBufferOffset, ReadOnlySpan<bool> isInitialized, int nodeId)
+        {
+            GroupedBiquadFilterCommand command = new GroupedBiquadFilterCommand(baseIndex, filters, biquadFilterStatesMemory, inputBufferOffset, outputBufferOffset, isInitialized, nodeId);
+
+            command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
+
+            AddCommand(command);
+        }
+
+        /// <summary>
         /// Generate a new <see cref="MixRampGroupedCommand"/>.
         /// </summary>
         /// <param name="mixBufferCount">The mix buffer count.</param>
@@ -316,11 +318,12 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <param name="workBuffer">The work buffer to use for processing.</param>
         /// <param name="nodeId">The node id associated to this command.</param>
         /// <param name="isLongSizePreDelaySupported">If set to true, the long size pre-delay is supported.</param>
-        public void GenerateReverbEffect(uint bufferOffset, ReverbParameter parameter, Memory<ReverbState> state, bool isEnabled, CpuAddress workBuffer, int nodeId, bool isLongSizePreDelaySupported)
+        /// <param name="newEffectChannelMappingSupported">If set to true, the new effect channel mapping for 5.1 is supported.</param>
+        public void GenerateReverbEffect(uint bufferOffset, ReverbParameter parameter, Memory<ReverbState> state, bool isEnabled, CpuAddress workBuffer, int nodeId, bool isLongSizePreDelaySupported, bool newEffectChannelMappingSupported)
         {
             if (parameter.IsChannelCountValid())
             {
-                ReverbCommand command = new ReverbCommand(bufferOffset, parameter, state, isEnabled, workBuffer, nodeId, isLongSizePreDelaySupported);
+                ReverbCommand command = new ReverbCommand(bufferOffset, parameter, state, isEnabled, workBuffer, nodeId, isLongSizePreDelaySupported, newEffectChannelMappingSupported);
 
                 command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
 
@@ -337,11 +340,12 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <param name="isEnabled">Set to true if the effect should be active.</param>
         /// <param name="workBuffer">The work buffer to use for processing.</param>
         /// <param name="nodeId">The node id associated to this command.</param>
-        public void GenerateReverb3dEffect(uint bufferOffset, Reverb3dParameter parameter, Memory<Reverb3dState> state, bool isEnabled, CpuAddress workBuffer, int nodeId)
+        /// <param name="newEffectChannelMappingSupported">If set to true, the new effect channel mapping for 5.1 is supported.</param>
+        public void GenerateReverb3dEffect(uint bufferOffset, Reverb3dParameter parameter, Memory<Reverb3dState> state, bool isEnabled, CpuAddress workBuffer, int nodeId, bool newEffectChannelMappingSupported)
         {
             if (parameter.IsChannelCountValid())
             {
-                Reverb3dCommand command = new Reverb3dCommand(bufferOffset, parameter, state, isEnabled, workBuffer, nodeId);
+                Reverb3dCommand command = new Reverb3dCommand(bufferOffset, parameter, state, isEnabled, workBuffer, nodeId, newEffectChannelMappingSupported);
 
                 command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
 
@@ -359,11 +363,55 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <param name="isEnabled">Set to true if the effect should be active.</param>
         /// <param name="workBuffer">The work buffer to use for processing.</param>
         /// <param name="nodeId">The node id associated to this command.</param>
-        public void GenerateDelayEffect(uint bufferOffset, DelayParameter parameter, Memory<DelayState> state, bool isEnabled, CpuAddress workBuffer, int nodeId)
+        /// <param name="newEffectChannelMappingSupported">If set to true, the new effect channel mapping for 5.1 is supported.</param>
+        public void GenerateDelayEffect(uint bufferOffset, DelayParameter parameter, Memory<DelayState> state, bool isEnabled, CpuAddress workBuffer, int nodeId, bool newEffectChannelMappingSupported)
         {
             if (parameter.IsChannelCountValid())
             {
-                DelayCommand command = new DelayCommand(bufferOffset, parameter, state, isEnabled, workBuffer, nodeId);
+                DelayCommand command = new DelayCommand(bufferOffset, parameter, state, isEnabled, workBuffer, nodeId, newEffectChannelMappingSupported);
+
+                command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
+
+                AddCommand(command);
+            }
+        }
+
+        /// <summary>
+        /// Generate a new <see cref="LimiterCommandVersion1"/>.
+        /// </summary>
+        /// <param name="bufferOffset">The target buffer offset.</param>
+        /// <param name="parameter">The limiter parameter.</param>
+        /// <param name="state">The limiter state.</param>
+        /// <param name="isEnabled">Set to true if the effect should be active.</param>
+        /// <param name="workBuffer">The work buffer to use for processing.</param>
+        /// <param name="nodeId">The node id associated to this command.</param>
+        public void GenerateLimiterEffectVersion1(uint bufferOffset, LimiterParameter parameter, Memory<LimiterState> state, bool isEnabled, ulong workBuffer, int nodeId)
+        {
+            if (parameter.IsChannelCountValid())
+            {
+                LimiterCommandVersion1 command = new LimiterCommandVersion1(bufferOffset, parameter, state, isEnabled, workBuffer, nodeId);
+
+                command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
+
+                AddCommand(command);
+            }
+        }
+
+        /// <summary>
+        /// Generate a new <see cref="LimiterCommandVersion2"/>.
+        /// </summary>
+        /// <param name="bufferOffset">The target buffer offset.</param>
+        /// <param name="parameter">The limiter parameter.</param>
+        /// <param name="state">The limiter state.</param>
+        /// <param name="effectResultState">The DSP effect result state.</param>
+        /// <param name="isEnabled">Set to true if the effect should be active.</param>
+        /// <param name="workBuffer">The work buffer to use for processing.</param>
+        /// <param name="nodeId">The node id associated to this command.</param>
+        public void GenerateLimiterEffectVersion2(uint bufferOffset, LimiterParameter parameter, Memory<LimiterState> state, Memory<EffectResultState> effectResultState, bool isEnabled, ulong workBuffer, int nodeId)
+        {
+            if (parameter.IsChannelCountValid())
+            {
+                LimiterCommandVersion2 command = new LimiterCommandVersion2(bufferOffset, parameter, state, effectResultState, isEnabled, workBuffer, nodeId);
 
                 command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
 
@@ -390,6 +438,42 @@ namespace Ryujinx.Audio.Renderer.Server
             if (state.SendBufferInfoBase != 0 && state.ReturnBufferInfoBase != 0)
             {
                 AuxiliaryBufferCommand command = new AuxiliaryBufferCommand(bufferOffset, inputBufferOffset, outputBufferOffset, ref state, isEnabled, countMax, outputBuffer, inputBuffer, updateCount, writeOffset, nodeId);
+
+                command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
+
+                AddCommand(command);
+            }
+        }
+
+        /// <summary>
+        /// Generate a new <see cref="CaptureBufferCommand"/>.
+        /// </summary>
+        /// <param name="bufferOffset">The target buffer offset.</param>
+        /// <param name="inputBufferOffset">The input buffer offset.</param>
+        /// <param name="sendBufferInfo">The capture state.</param>
+        /// <param name="isEnabled">Set to true if the effect should be active.</param>
+        /// <param name="countMax">The limit of the circular buffer.</param>
+        /// <param name="outputBuffer">The guest address of the output buffer.</param>
+        /// <param name="updateCount">The count to add on the offset after write operations.</param>
+        /// <param name="writeOffset">The write offset.</param>
+        /// <param name="nodeId">The node id associated to this command.</param>
+        public void GenerateCaptureEffect(uint bufferOffset, byte inputBufferOffset, ulong sendBufferInfo, bool isEnabled, uint countMax, CpuAddress outputBuffer, uint updateCount, uint writeOffset, int nodeId)
+        {
+            if (sendBufferInfo != 0)
+            {
+                CaptureBufferCommand command = new CaptureBufferCommand(bufferOffset, inputBufferOffset, sendBufferInfo, isEnabled, countMax, outputBuffer, updateCount, writeOffset, nodeId);
+
+                command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
+
+                AddCommand(command);
+            }
+        }
+
+        public void GenerateCompressorEffect(uint bufferOffset, CompressorParameter parameter, Memory<CompressorState> state, bool isEnabled, int nodeId)
+        {
+            if (parameter.IsChannelCountValid())
+            {
+                CompressorCommand command = new CompressorCommand(bufferOffset, parameter, state, isEnabled, nodeId);
 
                 command.EstimatedProcessingTime = _commandProcessingTimeEstimator.Estimate(command);
 
@@ -435,7 +519,7 @@ namespace Ryujinx.Audio.Renderer.Server
         /// <param name="outputBufferOffset">The output buffer offset.</param>
         /// <param name="downMixParameter">The downmixer parameters to use.</param>
         /// <param name="nodeId">The node id associated to this command.</param>
-        public void GenerateDownMixSurroundToStereo(uint bufferOffset, Span<byte> inputBufferOffset, Span<byte> outputBufferOffset, ReadOnlySpan<float> downMixParameter, int nodeId)
+        public void GenerateDownMixSurroundToStereo(uint bufferOffset, Span<byte> inputBufferOffset, Span<byte> outputBufferOffset, float[] downMixParameter, int nodeId)
         {
             DownMixSurroundToStereoCommand command = new DownMixSurroundToStereoCommand(bufferOffset, inputBufferOffset, outputBufferOffset, downMixParameter, nodeId);
 

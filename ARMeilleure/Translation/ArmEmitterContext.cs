@@ -1,12 +1,16 @@
+using ARMeilleure.CodeGen.Linking;
+using ARMeilleure.Common;
 using ARMeilleure.Decoders;
+using ARMeilleure.Diagnostics;
 using ARMeilleure.Instructions;
 using ARMeilleure.IntermediateRepresentation;
 using ARMeilleure.Memory;
 using ARMeilleure.State;
-using ARMeilleure.Translation.Cache;
+using ARMeilleure.Translation.PTC;
+using System;
 using System.Collections.Generic;
-
-using static ARMeilleure.IntermediateRepresentation.OperandHelper;
+using System.Reflection;
+using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
 
 namespace ARMeilleure.Translation
 {
@@ -40,21 +44,61 @@ namespace ARMeilleure.Translation
 
         public IMemoryManager Memory { get; }
 
-        public JumpTable JumpTable { get; }
+        public bool HasPtc { get; }
+
+        public EntryTable<uint> CountTable { get; }
+        public AddressTable<ulong> FunctionTable { get; }
+        public TranslatorStubs Stubs { get; }
 
         public ulong EntryAddress { get; }
         public bool HighCq { get; }
         public Aarch32Mode Mode { get; }
 
-        public ArmEmitterContext(IMemoryManager memory, JumpTable jumpTable, ulong entryAddress, bool highCq, Aarch32Mode mode)
+        private int _ifThenBlockStateIndex = 0;
+        private Condition[] _ifThenBlockState = { };
+        public bool IsInIfThenBlock => _ifThenBlockStateIndex < _ifThenBlockState.Length;
+        public Condition CurrentIfThenBlockCond => _ifThenBlockState[_ifThenBlockStateIndex];
+
+        public ArmEmitterContext(
+            IMemoryManager memory,
+            EntryTable<uint> countTable,
+            AddressTable<ulong> funcTable,
+            TranslatorStubs stubs,
+            ulong entryAddress,
+            bool highCq,
+            Aarch32Mode mode)
         {
-            Memory       = memory;
-            JumpTable    = jumpTable;
+            HasPtc = Ptc.State != PtcState.Disabled;
+            Memory = memory;
+            CountTable = countTable;
+            FunctionTable = funcTable;
+            Stubs = stubs;
             EntryAddress = entryAddress;
-            HighCq       = highCq;
-            Mode         = mode;
+            HighCq = highCq;
+            Mode = mode;
 
             _labels = new Dictionary<ulong, Operand>();
+        }
+
+        public override Operand Call(MethodInfo info, params Operand[] callArgs)
+        {
+            if (!HasPtc)
+            {
+                return base.Call(info, callArgs);
+            }
+            else
+            {
+                int index = Delegates.GetDelegateIndex(info);
+                IntPtr funcPtr = Delegates.GetDelegateFuncPtrByIndex(index);
+
+                OperandType returnType = GetOperandType(info.ReturnType);
+
+                Symbol symbol = new Symbol(SymbolType.DelegateTable, (ulong)index);
+
+                Symbols.Add((ulong)funcPtr.ToInt64(), info.Name);
+
+                return Call(Const(funcPtr.ToInt64(), symbol), returnType, callArgs);
+            }
         }
 
         public Operand GetLabel(ulong address)
@@ -100,7 +144,7 @@ namespace ARMeilleure.Translation
         {
             if (_optOpLastCompare == null || _optOpLastCompare != _optOpLastFlagSet)
             {
-                return null;
+                return default;
             }
 
             Operand n = _optCmpTempN;
@@ -155,7 +199,21 @@ namespace ARMeilleure.Translation
                 }
             }
 
-            return null;
+            return default;
+        }
+
+        public void SetIfThenBlockState(Condition[] state)
+        {
+            _ifThenBlockState = state;
+            _ifThenBlockStateIndex = 0;
+        }
+
+        public void AdvanceIfThenBlockState()
+        {
+            if (IsInIfThenBlock)
+            {
+                _ifThenBlockStateIndex++;
+            }
         }
     }
 }

@@ -1,9 +1,5 @@
 ﻿using Ryujinx.HLE.HOS.Tamper.Operations;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Ryujinx.HLE.HOS.Tamper
 {
@@ -20,17 +16,21 @@ namespace Ryujinx.HLE.HOS.Tamper
         public Dictionary<byte, Register> StaticRegisters { get; }
         public ulong ExeAddress { get; }
         public ulong HeapAddress { get; }
+        public ulong AliasAddress { get; }
+        public ulong AslrAddress { get; }
 
-        public CompilationContext(ulong exeAddress, ulong heapAddress, ITamperedProcess process)
+        public CompilationContext(ulong exeAddress, ulong heapAddress, ulong aliasAddress, ulong aslrAddress, ITamperedProcess process)
         {
-            Process = process;
-            PressedKeys = new Parameter<long>(0);
-            BlockStack = new Stack<OperationBlock>();
-            Registers = new Dictionary<byte, Register>();
-            SavedRegisters = new Dictionary<byte, Register>();
+            Process         = process;
+            PressedKeys     = new Parameter<long>(0);
+            BlockStack      = new Stack<OperationBlock>();
+            Registers       = new Dictionary<byte, Register>();
+            SavedRegisters  = new Dictionary<byte, Register>();
             StaticRegisters = new Dictionary<byte, Register>();
-            ExeAddress = exeAddress;
-            HeapAddress = heapAddress;
+            ExeAddress      = exeAddress;
+            HeapAddress     = heapAddress;
+            AliasAddress    = aliasAddress;
+            AslrAddress     = aslrAddress;
         }
 
         public Register GetRegister(byte index)

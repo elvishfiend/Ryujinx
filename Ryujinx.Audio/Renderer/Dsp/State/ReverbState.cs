@@ -1,20 +1,3 @@
-//
-// Copyright (c) 2019-2021 Ryujinx
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
-
 using Ryujinx.Audio.Renderer.Common;
 using Ryujinx.Audio.Renderer.Dsp.Effect;
 using Ryujinx.Audio.Renderer.Parameter.Effect;
@@ -94,10 +77,10 @@ namespace Ryujinx.Audio.Renderer.Dsp.State
             0.0f
         };
 
-        public IDelayLine[] FdnDelayLines { get; }
+        public DelayLine[] FdnDelayLines { get; }
         public DecayDelay[] DecayDelays { get; }
-        public IDelayLine PreDelayLine { get; }
-        public IDelayLine BackLeftDelayLine { get; }
+        public DelayLine PreDelayLine { get; }
+        public DelayLine FrontCenterDelayLine { get; }
         public uint[] EarlyDelayTime { get; }
         public float[] EarlyGain { get; }
         public uint PreDelayLineDelayTime { get; private set; }
@@ -112,17 +95,17 @@ namespace Ryujinx.Audio.Renderer.Dsp.State
 
         private ReadOnlySpan<float> GetFdnDelayTimesByLateMode(ReverbLateMode lateMode)
         {
-            return FdnDelayTimes.AsSpan().Slice((int)lateMode * 4, 4);
+            return FdnDelayTimes.AsSpan((int)lateMode * 4, 4);
         }
 
         private ReadOnlySpan<float> GetDecayDelayTimesByLateMode(ReverbLateMode lateMode)
         {
-            return DecayDelayTimes.AsSpan().Slice((int)lateMode * 4, 4);
+            return DecayDelayTimes.AsSpan((int)lateMode * 4, 4);
         }
 
         public ReverbState(ref ReverbParameter parameter, ulong workBuffer, bool isLongSizePreDelaySupported)
         {
-            FdnDelayLines = new IDelayLine[4];
+            FdnDelayLines = new DelayLine[4];
             DecayDelays = new DecayDelay[4];
             EarlyDelayTime = new uint[EarlyModeCount];
             EarlyGain = new float[EarlyModeCount];
@@ -149,7 +132,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.State
             }
 
             PreDelayLine = new DelayLine(sampleRate, preDelayTimeMax);
-            BackLeftDelayLine = new DelayLine(sampleRate, 5.0f);
+            FrontCenterDelayLine = new DelayLine(sampleRate, 5.0f);
 
             UpdateParameter(ref parameter);
         }

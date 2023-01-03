@@ -1,37 +1,41 @@
-﻿using System;
-using LibHac;
+﻿using LibHac;
+using LibHac.Common;
+using LibHac.Sf;
 
 namespace Ryujinx.HLE.HOS.Services.Fs
 {
-    class ISaveDataInfoReader : IpcService, IDisposable
+    class ISaveDataInfoReader : DisposableIpcService
     {
-        private ReferenceCountedDisposable<LibHac.FsSrv.ISaveDataInfoReader> _baseReader;
+        private SharedRef<LibHac.FsSrv.Sf.ISaveDataInfoReader> _baseReader;
 
-        public ISaveDataInfoReader(ReferenceCountedDisposable<LibHac.FsSrv.ISaveDataInfoReader> baseReader)
+        public ISaveDataInfoReader(ref SharedRef<LibHac.FsSrv.Sf.ISaveDataInfoReader> baseReader)
         {
-            _baseReader = baseReader;
+            _baseReader = SharedRef<LibHac.FsSrv.Sf.ISaveDataInfoReader>.CreateMove(ref baseReader);
         }
 
-        [Command(0)]
+        [CommandHipc(0)]
         // ReadSaveDataInfo() -> (u64, buffer<unknown, 6>)
         public ResultCode ReadSaveDataInfo(ServiceCtx context)
         {
-            long bufferPosition = context.Request.ReceiveBuff[0].Position;
-            long bufferLen      = context.Request.ReceiveBuff[0].Size;
+            ulong bufferAddress = context.Request.ReceiveBuff[0].Position;
+            ulong bufferLen = context.Request.ReceiveBuff[0].Size;
 
-            byte[] infoBuffer = new byte[bufferLen];
+            using (var region = context.Memory.GetWritableRegion(bufferAddress, (int)bufferLen, true))
+            {
+                Result result = _baseReader.Get.Read(out long readCount, new OutBuffer(region.Memory.Span));
 
-            Result result = _baseReader.Target.Read(out long readCount, infoBuffer);
+                context.ResponseData.Write(readCount);
 
-            context.Memory.Write((ulong)bufferPosition, infoBuffer);
-            context.ResponseData.Write(readCount);
-
-            return (ResultCode)result.Value;
+                return (ResultCode)result.Value;
+            }
         }
 
-        public void Dispose()
+        protected override void Dispose(bool isDisposing)
         {
-            _baseReader.Dispose();
+            if (isDisposing)
+            {
+                _baseReader.Destroy();
+            }
         }
     }
 }

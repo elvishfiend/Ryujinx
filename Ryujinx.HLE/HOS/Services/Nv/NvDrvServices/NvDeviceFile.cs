@@ -1,5 +1,4 @@
 ﻿using Ryujinx.Common.Logging;
-using Ryujinx.HLE.HOS.Kernel.Memory;
 using System;
 using System.Diagnostics;
 using System.Reflection;
@@ -11,11 +10,11 @@ namespace Ryujinx.HLE.HOS.Services.Nv.NvDrvServices
     abstract class NvDeviceFile
     {
         public readonly ServiceCtx Context;
-        public readonly long       Owner;
+        public readonly ulong      Owner;
 
         public string Path;
 
-        public NvDeviceFile(ServiceCtx context, long owner)
+        public NvDeviceFile(ServiceCtx context, ulong owner)
         {
             Context = context;
             Owner   = owner;

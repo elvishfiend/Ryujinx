@@ -1,4 +1,4 @@
-﻿using Ryujinx.Graphics.Nvdec.H264;
+﻿using Ryujinx.Graphics.Nvdec.FFmpeg.H264;
 using Ryujinx.Graphics.Nvdec.Image;
 using Ryujinx.Graphics.Nvdec.Types.H264;
 using Ryujinx.Graphics.Video;
@@ -10,31 +10,45 @@ namespace Ryujinx.Graphics.Nvdec
     {
         private const int MbSizeInPixels = 16;
 
-        private static readonly Decoder _decoder = new Decoder();
-
-        public unsafe static void Decode(NvdecDevice device, ResourceManager rm, ref NvdecRegisters state)
+        public static void Decode(NvdecDecoderContext context, ResourceManager rm, ref NvdecRegisters state)
         {
-            PictureInfo pictureInfo = rm.Gmm.DeviceRead<PictureInfo>(state.SetPictureInfoOffset);
+            PictureInfo pictureInfo = rm.Gmm.DeviceRead<PictureInfo>(state.SetDrvPicSetupOffset);
             H264PictureInfo info = pictureInfo.Convert();
 
-            ReadOnlySpan<byte> bitstream = rm.Gmm.DeviceGetSpan(state.SetBitstreamOffset, (int)pictureInfo.BitstreamSize);
+            ReadOnlySpan<byte> bitstream = rm.Gmm.DeviceGetSpan(state.SetInBufBaseOffset, (int)pictureInfo.BitstreamSize);
 
             int width  = (int)pictureInfo.PicWidthInMbs * MbSizeInPixels;
             int height = (int)pictureInfo.PicHeightInMbs * MbSizeInPixels;
 
-            ISurface outputSurface = rm.Cache.Get(_decoder, CodecId.H264, 0, 0, width, height);
+            int surfaceIndex = (int)pictureInfo.OutputSurfaceIndex;
 
-            if (_decoder.Decode(ref info, outputSurface, bitstream))
+            uint lumaOffset   = state.SetPictureLumaOffset[surfaceIndex];
+            uint chromaOffset = state.SetPictureChromaOffset[surfaceIndex];
+
+            Decoder decoder = context.GetH264Decoder();
+
+            ISurface outputSurface = rm.Cache.Get(decoder, 0, 0, width, height);
+
+            if (decoder.Decode(ref info, outputSurface, bitstream))
             {
-                int li = (int)pictureInfo.LumaOutputSurfaceIndex;
-                int ci = (int)pictureInfo.ChromaOutputSurfaceIndex;
-
-                uint lumaOffset   = state.SetSurfaceLumaOffset[li];
-                uint chromaOffset = state.SetSurfaceChromaOffset[ci];
-
-                SurfaceWriter.Write(rm.Gmm, outputSurface, lumaOffset, chromaOffset);
-
-                device.OnFrameDecoded(CodecId.H264, lumaOffset, chromaOffset);
+                if (outputSurface.Field == FrameField.Progressive)
+                {
+                    SurfaceWriter.Write(
+                        rm.Gmm,
+                        outputSurface,
+                        lumaOffset   + pictureInfo.LumaFrameOffset,
+                        chromaOffset + pictureInfo.ChromaFrameOffset);
+                }
+                else
+                {
+                    SurfaceWriter.WriteInterlaced(
+                        rm.Gmm,
+                        outputSurface,
+                        lumaOffset   + pictureInfo.LumaTopFieldOffset,
+                        chromaOffset + pictureInfo.ChromaTopFieldOffset,
+                        lumaOffset   + pictureInfo.LumaBottomFieldOffset,
+                        chromaOffset + pictureInfo.ChromaBottomFieldOffset);
+                }
             }
 
             rm.Cache.Put(outputSurface);

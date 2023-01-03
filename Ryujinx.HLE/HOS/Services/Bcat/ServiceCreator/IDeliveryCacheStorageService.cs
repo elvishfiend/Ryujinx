@@ -1,68 +1,74 @@
 using LibHac;
 using LibHac.Bcat;
-using System;
+using LibHac.Common;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator
 {
-    class IDeliveryCacheStorageService : IpcService, IDisposable
+    class IDeliveryCacheStorageService : DisposableIpcService
     {
-        private LibHac.Bcat.Detail.Ipc.IDeliveryCacheStorageService _base;
+        private SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheStorageService> _base;
 
-        public IDeliveryCacheStorageService(ServiceCtx context, LibHac.Bcat.Detail.Ipc.IDeliveryCacheStorageService baseService)
+        public IDeliveryCacheStorageService(ServiceCtx context, ref SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheStorageService> baseService)
         {
-            _base = baseService;
+            _base = SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheStorageService>.CreateMove(ref baseService);
         }
 
-        [Command(0)]
+        [CommandHipc(0)]
         // CreateFileService() -> object<nn::bcat::detail::ipc::IDeliveryCacheFileService>
         public ResultCode CreateFileService(ServiceCtx context)
         {
-            Result result = _base.CreateFileService(out LibHac.Bcat.Detail.Ipc.IDeliveryCacheFileService service);
+            using var service = new SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheFileService>();
+
+            Result result = _base.Get.CreateFileService(ref service.Ref());
 
             if (result.IsSuccess())
             {
-                MakeObject(context, new IDeliveryCacheFileService(service));
+                MakeObject(context, new IDeliveryCacheFileService(ref service.Ref()));
             }
 
             return (ResultCode)result.Value;
         }
 
-        [Command(1)]
+        [CommandHipc(1)]
         // CreateDirectoryService() -> object<nn::bcat::detail::ipc::IDeliveryCacheDirectoryService>
         public ResultCode CreateDirectoryService(ServiceCtx context)
         {
-            Result result = _base.CreateDirectoryService(out LibHac.Bcat.Detail.Ipc.IDeliveryCacheDirectoryService service);
+            using var service = new SharedRef<LibHac.Bcat.Impl.Ipc.IDeliveryCacheDirectoryService>();
+
+            Result result = _base.Get.CreateDirectoryService(ref service.Ref());
 
             if (result.IsSuccess())
             {
-                MakeObject(context, new IDeliveryCacheDirectoryService(service));
+                MakeObject(context, new IDeliveryCacheDirectoryService(ref service.Ref()));
             }
 
             return (ResultCode)result.Value;
         }
 
-        [Command(10)]
+        [CommandHipc(10)]
         // EnumerateDeliveryCacheDirectory() -> (u32, buffer<nn::bcat::DirectoryName, 6>)
         public ResultCode EnumerateDeliveryCacheDirectory(ServiceCtx context)
         {
-            long position = context.Request.ReceiveBuff[0].Position;
-            long size = context.Request.ReceiveBuff[0].Size;
+            ulong bufferAddress = context.Request.ReceiveBuff[0].Position;
+            ulong bufferLen = context.Request.ReceiveBuff[0].Size;
 
-            byte[] data = new byte[size];
+            using (var region = context.Memory.GetWritableRegion(bufferAddress, (int)bufferLen, true))
+            {
+                Result result = _base.Get.EnumerateDeliveryCacheDirectory(out int count, MemoryMarshal.Cast<byte, DirectoryName>(region.Memory.Span));
 
-            Result result = _base.EnumerateDeliveryCacheDirectory(out int count, MemoryMarshal.Cast<byte, DirectoryName>(data));
+                context.ResponseData.Write(count);
 
-            context.Memory.Write((ulong)position, data);
-
-            context.ResponseData.Write(count);
-
-            return (ResultCode)result.Value;
+                return (ResultCode)result.Value;
+            }
         }
 
-        public void Dispose()
+        protected override void Dispose(bool isDisposing)
         {
-            _base?.Dispose();
+            if (isDisposing)
+            {
+                _base.Destroy();
+            }
         }
     }
 }

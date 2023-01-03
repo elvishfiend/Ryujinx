@@ -1,6 +1,6 @@
 namespace Ryujinx.Graphics.GAL
 {
-    public struct ImageCrop
+    public readonly struct ImageCrop
     {
         public int   Left         { get; }
         public int   Right        { get; }
@@ -21,8 +21,7 @@ namespace Ryujinx.Graphics.GAL
             bool  flipY,
             bool  isStretched,
             float aspectRatioX,
-            float aspectRatioY
-            )
+            float aspectRatioY)
         {
             Left         = left;
             Right        = right;

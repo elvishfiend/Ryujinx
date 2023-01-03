@@ -15,22 +15,24 @@ namespace Ryujinx.HLE.HOS.Services.Pctl
             _permissionFlag = permissionFlag;
         }
 
-        [Command(0)]
+        [CommandHipc(0)]
         // CreateService(u64, pid) -> object<nn::pctl::detail::ipc::IParentalControlService>
         public ResultCode CreateService(ServiceCtx context)
         {
-            // TODO: Should pass the pid.
-            MakeObject(context, new IParentalControlService(context, true, _permissionFlag));
+            ulong pid = context.Request.HandleDesc.PId;
+
+            MakeObject(context, new IParentalControlService(context, pid, true, _permissionFlag));
 
             return ResultCode.Success;
         }
 
-        [Command(1)] // 4.0.0+
+        [CommandHipc(1)] // 4.0.0+
         // CreateServiceWithoutInitialize(u64, pid) -> object<nn::pctl::detail::ipc::IParentalControlService>
         public ResultCode CreateServiceWithoutInitialize(ServiceCtx context)
         {
-            // TODO: Should pass the pid.
-            MakeObject(context, new IParentalControlService(context, false, _permissionFlag));
+            ulong pid = context.Request.HandleDesc.PId;
+
+            MakeObject(context, new IParentalControlService(context, pid, false, _permissionFlag));
 
             return ResultCode.Success;
         }

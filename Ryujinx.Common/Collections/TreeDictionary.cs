@@ -10,8 +10,14 @@ namespace Ryujinx.Common.Collections
     /// </summary>
     /// <typeparam name="K">Key</typeparam>
     /// <typeparam name="V">Value</typeparam>
-    public class TreeDictionary<K, V> : IntrusiveRedBlackTreeImpl<Node<K, V>>, IDictionary<K, V> where K : IComparable<K>
+    public class TreeDictionary<K, V> : IDictionary<K, V> where K : IComparable<K>
     {
+        private const bool Black = true;
+        private const bool Red = false;
+        private Node<K, V> _root = null;
+        private int _count = 0;
+        public TreeDictionary() { }
+
         #region Public Methods
 
         /// <summary>
@@ -22,7 +28,10 @@ namespace Ryujinx.Common.Collections
         /// <exception cref="ArgumentNullException"><paramref name="key"/> is null</exception>
         public V Get(K key)
         {
-            ArgumentNullException.ThrowIfNull(key);
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
 
             Node<K, V> node = GetNode(key);
 
@@ -44,8 +53,14 @@ namespace Ryujinx.Common.Collections
         /// <exception cref="ArgumentNullException"><paramref name="key"/> or <paramref name="value"/> are null</exception>
         public void Add(K key, V value)
         {
-            ArgumentNullException.ThrowIfNull(key);
-            ArgumentNullException.ThrowIfNull(value);
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+            if (null == value)
+            {
+                throw new ArgumentNullException(nameof(value));
+            }
 
             Insert(key, value);
         }
@@ -57,11 +72,13 @@ namespace Ryujinx.Common.Collections
         /// <exception cref="ArgumentNullException"><paramref name="key"/> is null</exception>
         public void Remove(K key)
         {
-            ArgumentNullException.ThrowIfNull(key);
-
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
             if (Delete(key) != null)
             {
-                Count--;
+                _count--;
             }
         }
 
@@ -143,12 +160,13 @@ namespace Ryujinx.Common.Collections
 
             Queue<Node<K, V>> nodes = new Queue<Node<K, V>>();
 
-            if (this.Root != null)
+            if (this._root != null)
             {
-                nodes.Enqueue(this.Root);
+                nodes.Enqueue(this._root);
             }
-            while (nodes.TryDequeue(out Node<K, V> node))
+            while (nodes.Count > 0)
             {
+                Node<K, V> node = nodes.Dequeue();
                 list.Add(new KeyValuePair<K, V>(node.Key, node.Value));
                 if (node.Left != null)
                 {
@@ -164,39 +182,37 @@ namespace Ryujinx.Common.Collections
 
         /// <summary>
         /// Adds all the nodes in the dictionary into <paramref name="list"/>.
+        /// <br></br>
+        /// The nodes will be added in Sorted by Key Order.
         /// </summary>
-        /// <returns>A list of all KeyValuePairs sorted by Key Order</returns>
         public List<KeyValuePair<K, V>> AsList()
         {
             List<KeyValuePair<K, V>> list = new List<KeyValuePair<K, V>>();
 
-            AddToList(Root, list);
+            Queue<Node<K, V>> nodes = new Queue<Node<K, V>>();
+
+            if (this._root != null)
+            {
+                nodes.Enqueue(this._root);
+            }
+            while (nodes.Count > 0)
+            {
+                Node<K, V> node = nodes.Dequeue();
+                list.Add(new KeyValuePair<K, V>(node.Key, node.Value));
+                if (node.Left != null)
+                {
+                    nodes.Enqueue(node.Left);
+                }
+                if (node.Right != null)
+                {
+                    nodes.Enqueue(node.Right);
+                }
+            }
 
             return list;
         }
-
         #endregion
-
         #region Private Methods (BST)
-
-        /// <summary>
-        /// Adds all nodes that are children of or contained within <paramref name="node"/> into <paramref name="list"/>, in Key Order.
-        /// </summary>
-        /// <param name="node">The node to search for nodes within</param>
-        /// <param name="list">The list to add node to</param>
-        private void AddToList(Node<K, V> node, List<KeyValuePair<K, V>> list)
-        {
-            if (node == null)
-            {
-                return;
-            }
-
-            AddToList(node.Left, list);
-
-            list.Add(new KeyValuePair<K, V>(node.Key, node.Value));
-
-            AddToList(node.Right, list);
-        }
 
         /// <summary>
         /// Retrieve the node reference whose key is <paramref name="key"/>, or null if no such node exists.
@@ -206,9 +222,12 @@ namespace Ryujinx.Common.Collections
         /// <exception cref="ArgumentNullException"><paramref name="key"/> is null</exception>
         private Node<K, V> GetNode(K key)
         {
-            ArgumentNullException.ThrowIfNull(key);
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
 
-            Node<K, V> node = Root;
+            Node<K, V> node = _root;
             while (node != null)
             {
                 int cmp = key.CompareTo(node.Key);
@@ -254,7 +273,7 @@ namespace Ryujinx.Common.Collections
         private Node<K, V> BSTInsert(K key, V value)
         {
             Node<K, V> parent = null;
-            Node<K, V> node = Root;
+            Node<K, V> node = _root;
 
             while (node != null)
             {
@@ -277,7 +296,7 @@ namespace Ryujinx.Common.Collections
             Node<K, V> newNode = new Node<K, V>(key, value, parent);
             if (newNode.Parent == null)
             {
-                Root = newNode;
+                _root = newNode;
             }
             else if (key.CompareTo(parent.Key) < 0)
             {
@@ -287,7 +306,7 @@ namespace Ryujinx.Common.Collections
             {
                 parent.Right = newNode;
             }
-            Count++;
+            _count++;
             return newNode;
         }
 
@@ -323,8 +342,9 @@ namespace Ryujinx.Common.Collections
 
             if (ParentOf(replacementNode) == null)
             {
-                Root = tmp;
+                _root = tmp;
             }
+
             else if (replacementNode == LeftOf(ParentOf(replacementNode)))
             {
                 ParentOf(replacementNode).Left = tmp;
@@ -349,6 +369,48 @@ namespace Ryujinx.Common.Collections
         }
 
         /// <summary>
+        /// Returns the node with the largest key where <paramref name="node"/> is considered the root node.
+        /// </summary>
+        /// <param name="node">Root Node</param>
+        /// <returns>Node with the maximum key in the tree of <paramref name="node"/></returns>
+        /// <exception cref="ArgumentNullException"><paramref name="node"/> is null</exception>
+        private static Node<K, V> Maximum(Node<K, V> node)
+        {
+            if (node == null)
+            {
+                throw new ArgumentNullException(nameof(node));
+            }
+            Node<K, V> tmp = node;
+            while (tmp.Right != null)
+            {
+                tmp = tmp.Right;
+            }
+
+            return tmp;
+        }
+
+        /// <summary>
+        /// Returns the node with the smallest key where <paramref name="node"/> is considered the root node.
+        /// </summary>
+        /// <param name="node">Root Node</param>
+        /// <returns>Node with the minimum key in the tree of <paramref name="node"/></returns>
+        ///<exception cref="ArgumentNullException"><paramref name="node"/> is null</exception>
+        private static Node<K, V> Minimum(Node<K, V> node)
+        {
+            if (node == null)
+            {
+                throw new ArgumentNullException(nameof(node));
+            }
+            Node<K, V> tmp = node;
+            while (tmp.Left != null)
+            {
+                tmp = tmp.Left;
+            }
+
+            return tmp;
+        }
+
+        /// <summary>
         /// Returns the node whose key immediately less than or equal to <paramref name="key"/>.
         /// </summary>
         /// <param name="key">Key for which to find the floor node of</param>
@@ -356,9 +418,11 @@ namespace Ryujinx.Common.Collections
         /// <exception cref="ArgumentNullException"><paramref name="key"/> is null</exception>
         private Node<K, V> FloorNode(K key)
         {
-            ArgumentNullException.ThrowIfNull(key);
-
-            Node<K, V> tmp = Root;
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+            Node<K, V> tmp = _root;
 
             while (tmp != null)
             {
@@ -408,9 +472,11 @@ namespace Ryujinx.Common.Collections
         /// <exception cref="ArgumentNullException"><paramref name="key"/> is null</exception>
         private Node<K, V> CeilingNode(K key)
         {
-            ArgumentNullException.ThrowIfNull(key);
-
-            Node<K, V> tmp = Root;
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+            Node<K, V> tmp = _root;
 
             while (tmp != null)
             {
@@ -452,6 +518,292 @@ namespace Ryujinx.Common.Collections
             return null;
         }
 
+        /// <summary>
+        /// Finds the node with the key immediately greater than <paramref name="node"/>.Key.
+        /// </summary>
+        /// <param name="node">Node to find the successor of</param>
+        /// <returns>Successor of <paramref name="node"/></returns>
+        private static Node<K, V> SuccessorOf(Node<K, V> node)
+        {
+            if (node.Right != null)
+            {
+                return Minimum(node.Right);
+            }
+            Node<K, V> parent = node.Parent;
+            while (parent != null && node == parent.Right)
+            {
+                node = parent;
+                parent = parent.Parent;
+            }
+            return parent;
+        }
+
+        /// <summary>
+        /// Finds the node whose key immediately less than <paramref name="node"/>.Key.
+        /// </summary>
+        /// <param name="node">Node to find the predecessor of</param>
+        /// <returns>Predecessor of <paramref name="node"/></returns>
+        private static Node<K, V> PredecessorOf(Node<K, V> node)
+        {
+            if (node.Left != null)
+            {
+                return Maximum(node.Left);
+            }
+            Node<K, V> parent = node.Parent;
+            while (parent != null && node == parent.Left)
+            {
+                node = parent;
+                parent = parent.Parent;
+            }
+            return parent;
+        }
+        #endregion
+        #region Private Methods (RBL)
+
+        private void RestoreBalanceAfterRemoval(Node<K, V> balanceNode)
+        {
+            Node<K, V> ptr = balanceNode;
+
+            while (ptr != _root && ColorOf(ptr) == Black)
+            {
+                if (ptr == LeftOf(ParentOf(ptr)))
+                {
+                    Node<K, V> sibling = RightOf(ParentOf(ptr));
+
+                    if (ColorOf(sibling) == Red)
+                    {
+                        SetColor(sibling, Black);
+                        SetColor(ParentOf(ptr), Red);
+                        RotateLeft(ParentOf(ptr));
+                        sibling = RightOf(ParentOf(ptr));
+                    }
+                    if (ColorOf(LeftOf(sibling)) == Black && ColorOf(RightOf(sibling)) == Black)
+                    {
+                        SetColor(sibling, Red);
+                        ptr = ParentOf(ptr);
+                    }
+                    else
+                    {
+                        if (ColorOf(RightOf(sibling)) == Black)
+                        {
+                            SetColor(LeftOf(sibling), Black);
+                            SetColor(sibling, Red);
+                            RotateRight(sibling);
+                            sibling = RightOf(ParentOf(ptr));
+                        }
+                        SetColor(sibling, ColorOf(ParentOf(ptr)));
+                        SetColor(ParentOf(ptr), Black);
+                        SetColor(RightOf(sibling), Black);
+                        RotateLeft(ParentOf(ptr));
+                        ptr = _root;
+                    }
+                }
+                else
+                {
+                    Node<K, V> sibling = LeftOf(ParentOf(ptr));
+
+                    if (ColorOf(sibling) == Red)
+                    {
+                        SetColor(sibling, Black);
+                        SetColor(ParentOf(ptr), Red);
+                        RotateRight(ParentOf(ptr));
+                        sibling = LeftOf(ParentOf(ptr));
+                    }
+                    if (ColorOf(RightOf(sibling)) == Black && ColorOf(LeftOf(sibling)) == Black)
+                    {
+                        SetColor(sibling, Red);
+                        ptr = ParentOf(ptr);
+                    }
+                    else
+                    {
+                        if (ColorOf(LeftOf(sibling)) == Black)
+                        {
+                            SetColor(RightOf(sibling), Black);
+                            SetColor(sibling, Red);
+                            RotateLeft(sibling);
+                            sibling = LeftOf(ParentOf(ptr));
+                        }
+                        SetColor(sibling, ColorOf(ParentOf(ptr)));
+                        SetColor(ParentOf(ptr), Black);
+                        SetColor(LeftOf(sibling), Black);
+                        RotateRight(ParentOf(ptr));
+                        ptr = _root;
+                    }
+                }
+            }
+            SetColor(ptr, Black);
+        }
+
+        private void RestoreBalanceAfterInsertion(Node<K, V> balanceNode)
+        {
+            SetColor(balanceNode, Red);
+            while (balanceNode != null && balanceNode != _root && ColorOf(ParentOf(balanceNode)) == Red)
+            {
+                if (ParentOf(balanceNode) == LeftOf(ParentOf(ParentOf(balanceNode))))
+                {
+                    Node<K, V> sibling = RightOf(ParentOf(ParentOf(balanceNode)));
+
+                    if (ColorOf(sibling) == Red)
+                    {
+                        SetColor(ParentOf(balanceNode), Black);
+                        SetColor(sibling, Black);
+                        SetColor(ParentOf(ParentOf(balanceNode)), Red);
+                        balanceNode = ParentOf(ParentOf(balanceNode));
+                    }
+                    else
+                    {
+                        if (balanceNode == RightOf(ParentOf(balanceNode)))
+                        {
+                            balanceNode = ParentOf(balanceNode);
+                            RotateLeft(balanceNode);
+                        }
+                        SetColor(ParentOf(balanceNode), Black);
+                        SetColor(ParentOf(ParentOf(balanceNode)), Red);
+                        RotateRight(ParentOf(ParentOf(balanceNode)));
+                    }
+                }
+                else
+                {
+                    Node<K, V> sibling = LeftOf(ParentOf(ParentOf(balanceNode)));
+
+                    if (ColorOf(sibling) == Red)
+                    {
+                        SetColor(ParentOf(balanceNode), Black);
+                        SetColor(sibling, Black);
+                        SetColor(ParentOf(ParentOf(balanceNode)), Red);
+                        balanceNode = ParentOf(ParentOf(balanceNode));
+                    }
+                    else
+                    {
+                        if (balanceNode == LeftOf(ParentOf(balanceNode)))
+                        {
+                            balanceNode = ParentOf(balanceNode);
+                            RotateRight(balanceNode);
+                        }
+                        SetColor(ParentOf(balanceNode), Black);
+                        SetColor(ParentOf(ParentOf(balanceNode)), Red);
+                        RotateLeft(ParentOf(ParentOf(balanceNode)));
+                    }
+                }
+            }
+            SetColor(_root, Black);
+        }
+
+        private void RotateLeft(Node<K, V> node)
+        {
+            if (node != null)
+            {
+                Node<K, V> right = RightOf(node);
+                node.Right = LeftOf(right);
+                if (LeftOf(right) != null)
+                {
+                    LeftOf(right).Parent = node;
+                }
+                right.Parent = ParentOf(node);
+                if (ParentOf(node) == null)
+                {
+                    _root = right;
+                }
+                else if (node == LeftOf(ParentOf(node)))
+                {
+                    ParentOf(node).Left = right;
+                }
+                else
+                {
+                    ParentOf(node).Right = right;
+                }
+                right.Left = node;
+                node.Parent = right;
+            }
+        }
+
+        private void RotateRight(Node<K, V> node)
+        {
+            if (node != null)
+            {
+                Node<K, V> left = LeftOf(node);
+                node.Left = RightOf(left);
+                if (RightOf(left) != null)
+                {
+                    RightOf(left).Parent = node;
+                }
+                left.Parent = node.Parent;
+                if (ParentOf(node) == null)
+                {
+                    _root = left;
+                }
+                else if (node == RightOf(ParentOf(node)))
+                {
+                    ParentOf(node).Right = left;
+                }
+                else
+                {
+                    ParentOf(node).Left = left;
+                }
+                left.Right = node;
+                node.Parent = left;
+            }
+        }
+        #endregion
+
+        #region Safety-Methods
+
+        // These methods save memory by allowing us to forego sentinel nil nodes, as well as serve as protection against nullpointerexceptions.
+
+        /// <summary>
+        /// Returns the color of <paramref name="node"/>, or Black if it is null.
+        /// </summary>
+        /// <param name="node">Node</param>
+        /// <returns>The boolean color of <paramref name="node"/>, or black if null</returns>
+        private static bool ColorOf(Node<K, V> node)
+        {
+            return node == null || node.Color;
+        }
+
+        /// <summary>
+        /// Sets the color of <paramref name="node"/> node to <paramref name="color"/>.
+        /// <br></br>
+        /// This method does nothing if <paramref name="node"/> is null.
+        /// </summary>
+        /// <param name="node">Node to set the color of</param>
+        /// <param name="color">Color (Boolean)</param>
+        private static void SetColor(Node<K, V> node, bool color)
+        {
+            if (node != null)
+            {
+                node.Color = color;
+            }
+        }
+
+        /// <summary>
+        /// This method returns the left node of <paramref name="node"/>, or null if <paramref name="node"/> is null.
+        /// </summary>
+        /// <param name="node">Node to retrieve the left child from</param>
+        /// <returns>Left child of <paramref name="node"/></returns>
+        private static Node<K, V> LeftOf(Node<K, V> node)
+        {
+            return node?.Left;
+        }
+
+        /// <summary>
+        /// This method returns the right node of <paramref name="node"/>, or null if <paramref name="node"/> is null.
+        /// </summary>
+        /// <param name="node">Node to retrieve the right child from</param>
+        /// <returns>Right child of <paramref name="node"/></returns>
+        private static Node<K, V> RightOf(Node<K, V> node)
+        {
+            return node?.Right;
+        }
+
+        /// <summary>
+        /// Returns the parent node of <paramref name="node"/>, or null if <paramref name="node"/> is null.
+        /// </summary>
+        /// <param name="node">Node to retrieve the parent from</param>
+        /// <returns>Parent of <paramref name="node"/></returns>
+        private static Node<K, V> ParentOf(Node<K, V> node)
+        {
+            return node?.Parent;
+        }
         #endregion
 
         #region Interface Implementations
@@ -459,22 +811,26 @@ namespace Ryujinx.Common.Collections
         // Method descriptions are not provided as they are already included as part of the interface.
         public bool ContainsKey(K key)
         {
-            ArgumentNullException.ThrowIfNull(key);
-
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
             return GetNode(key) != null;
         }
 
         bool IDictionary<K, V>.Remove(K key)
         {
-            int count = Count;
+            int count = _count;
             Remove(key);
-            return count > Count;
+            return count > _count;
         }
 
         public bool TryGetValue(K key, [MaybeNullWhen(false)] out V value)
         {
-            ArgumentNullException.ThrowIfNull(key);
-
+            if (null == key)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
             Node<K, V> node = GetNode(key);
             value = node != null ? node.Value : default;
             return node != null;
@@ -482,9 +838,18 @@ namespace Ryujinx.Common.Collections
 
         public void Add(KeyValuePair<K, V> item)
         {
-            ArgumentNullException.ThrowIfNull(item.Key);
+            if (item.Key == null)
+            {
+                throw new ArgumentNullException(nameof(item.Key));
+            }
 
             Add(item.Key, item.Value);
+        }
+
+        public void Clear()
+        {
+            _root = null;
+            _count = 0;
         }
 
         public bool Contains(KeyValuePair<K, V> item)
@@ -531,9 +896,9 @@ namespace Ryujinx.Common.Collections
 
             if (node.Value.Equals(item.Value))
             {
-                int count = Count;
+                int count = _count;
                 Remove(item.Key);
-                return count > Count;
+                return count > _count;
             }
 
             return false;
@@ -549,20 +914,21 @@ namespace Ryujinx.Common.Collections
             return GetKeyValues().GetEnumerator();
         }
 
+        public int Count => _count;
+
         public ICollection<K> Keys => GetKeyValues().Keys;
 
         public ICollection<V> Values => GetKeyValues().Values;
 
         public bool IsReadOnly => false;
 
-        public V this[K key]
-        {
+        public V this[K key] 
+        { 
             get => Get(key);
-            set => Add(key, value);
+            set => Add(key, value); 
         }
 
         #endregion
-
         #region Private Interface Helper Methods
 
         /// <summary>
@@ -573,13 +939,14 @@ namespace Ryujinx.Common.Collections
         {
             SortedList<K, V> set = new SortedList<K, V>();
             Queue<Node<K, V>> queue = new Queue<Node<K, V>>();
-            if (Root != null)
+            if (_root != null)
             {
-                queue.Enqueue(Root);
+                queue.Enqueue(_root);
             }
 
-            while (queue.TryDequeue(out Node<K, V> node))
+            while (queue.Count > 0)
             {
+                Node<K, V> node = queue.Dequeue();
                 set.Add(node.Key, node.Value);
                 if (null != node.Left)
                 {
@@ -593,7 +960,6 @@ namespace Ryujinx.Common.Collections
 
             return set;
         }
-
         #endregion
     }
 
@@ -602,16 +968,20 @@ namespace Ryujinx.Common.Collections
     /// </summary>
     /// <typeparam name="K">Key of the node</typeparam>
     /// <typeparam name="V">Value of the node</typeparam>
-    public class Node<K, V> : IntrusiveRedBlackTreeNode<Node<K, V>> where K : IComparable<K>
+    internal class Node<K, V>
     {
+        internal bool Color = true;
+        internal Node<K, V> Left = null;
+        internal Node<K, V> Right = null;
+        internal Node<K, V> Parent = null;
         internal K Key;
         internal V Value;
 
-        internal Node(K key, V value, Node<K, V> parent)
+        public Node(K key, V value, Node<K, V> parent)
         {
-            Key = key;
-            Value = value;
-            Parent = parent;
+            this.Key = key;
+            this.Value = value;
+            this.Parent = parent;
         }
     }
 }

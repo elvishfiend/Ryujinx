@@ -1,4 +1,5 @@
 using Ryujinx.Common.Logging;
+using Ryujinx.Cpu;
 using Ryujinx.HLE.HOS.Services.Account.Acc.AccountService;
 using Ryujinx.HLE.HOS.Services.Arp;
 
@@ -14,42 +15,42 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             _applicationServiceServer = new ApplicationServiceServer(serviceFlag);
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetUserCount() -> i32
         public ResultCode GetUserCount(ServiceCtx context)
         {
             return _applicationServiceServer.GetUserCountImpl(context);
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetUserExistence(nn::account::Uid) -> bool
         public ResultCode GetUserExistence(ServiceCtx context)
         {
             return _applicationServiceServer.GetUserExistenceImpl(context);
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // ListAllUsers() -> array<nn::account::Uid, 0xa>
         public ResultCode ListAllUsers(ServiceCtx context)
         {
             return _applicationServiceServer.ListAllUsers(context);
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // ListOpenUsers() -> array<nn::account::Uid, 0xa>
         public ResultCode ListOpenUsers(ServiceCtx context)
         {
             return _applicationServiceServer.ListOpenUsers(context);
         }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // GetLastOpenedUser() -> nn::account::Uid
         public ResultCode GetLastOpenedUser(ServiceCtx context)
         {
             return _applicationServiceServer.GetLastOpenedUser(context);
         }
 
-        [CommandHipc(5)]
+        [Command(5)]
         // GetProfile(nn::account::Uid) -> object<nn::account::profile::IProfile>
         public ResultCode GetProfile(ServiceCtx context)
         {
@@ -63,7 +64,7 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return resultCode;
         }
 
-        [CommandHipc(50)]
+        [Command(50)]
         // IsUserRegistrationRequestPermitted(pid) -> bool
         public ResultCode IsUserRegistrationRequestPermitted(ServiceCtx context)
         {
@@ -71,16 +72,15 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return _applicationServiceServer.IsUserRegistrationRequestPermitted(context);
         }
 
-        [CommandHipc(51)]
+        [Command(51)]
         // TrySelectUserWithoutInteraction(bool) -> nn::account::Uid
         public ResultCode TrySelectUserWithoutInteraction(ServiceCtx context)
         {
             return _applicationServiceServer.TrySelectUserWithoutInteraction(context);
         }
 
-        [CommandHipc(100)]
-        [CommandHipc(140)] // 6.0.0+
-        [CommandHipc(160)] // 13.0.0+
+        [Command(100)]
+        [Command(140)] // 6.0.0+
         // InitializeApplicationInfo(u64 pid_placeholder, pid)
         public ResultCode InitializeApplicationInfo(ServiceCtx context)
         {
@@ -105,7 +105,7 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return ResultCode.Success;
         }
 
-        [CommandHipc(101)]
+        [Command(101)]
         // GetBaasAccountManagerForApplication(nn::account::Uid) -> object<nn::account::baas::IManagerForApplication>
         public ResultCode GetBaasAccountManagerForApplication(ServiceCtx context)
         {
@@ -124,66 +124,51 @@ namespace Ryujinx.HLE.HOS.Services.Account.Acc
             return ResultCode.Success;
         }
 
-        [CommandHipc(103)] // 4.0.0+
-        // CheckNetworkServiceAvailabilityAsync() -> object<nn::account::detail::IAsyncContext>
-        public ResultCode CheckNetworkServiceAvailabilityAsync(ServiceCtx context)
-        {
-            ResultCode resultCode = _applicationServiceServer.CheckNetworkServiceAvailabilityAsync(context, out IAsyncContext asyncContext);
-
-            if (resultCode == ResultCode.Success)
-            {
-                MakeObject(context, asyncContext);
-            }
-
-            return resultCode;
-        }
-        
-        [CommandHipc(110)]
+        [Command(110)]
         // StoreSaveDataThumbnail(nn::account::Uid, buffer<bytes, 5>)
         public ResultCode StoreSaveDataThumbnail(ServiceCtx context)
         {
             return _applicationServiceServer.StoreSaveDataThumbnail(context);
         }
 
-        [CommandHipc(111)]
+        [Command(111)]
         // ClearSaveDataThumbnail(nn::account::Uid)
         public ResultCode ClearSaveDataThumbnail(ServiceCtx context)
         {
             return _applicationServiceServer.ClearSaveDataThumbnail(context);
         }
 
-        [CommandHipc(130)] // 5.0.0+
-        // LoadOpenContext(nn::account::Uid)
-        public ResultCode LoadOpenContext(ServiceCtx context)
+        [Command(131)] // 6.0.0+
+        // ListOpenContextStoredUsers() -> array<nn::account::Uid, 0xa>
+        public ResultCode ListOpenContextStoredUsers(ServiceCtx context)
         {
+            long outputPosition = context.Request.RecvListBuff[0].Position;
+            long outputSize     = context.Request.RecvListBuff[0].Size;
+
+            MemoryHelper.FillWithZeros(context.Memory, outputPosition, (int)outputSize);
+
+            // TODO: This seems to write stored userids of the OpenContext in the buffer. We needs to determine them.
+            
             Logger.Stub?.PrintStub(LogClass.ServiceAcc);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(60)] // 5.0.0-5.1.0
-        [CommandHipc(131)] // 6.0.0+
-        // ListOpenContextStoredUsers() -> array<nn::account::Uid, 0xa>
-        public ResultCode ListOpenContextStoredUsers(ServiceCtx context)
-        {
-            return _applicationServiceServer.ListOpenContextStoredUsers(context);
-        }
-
-        [CommandHipc(141)] // 6.0.0+
+        [Command(141)] // 6.0.0+
         // ListQualifiedUsers() -> array<nn::account::Uid, 0xa>
         public ResultCode ListQualifiedUsers(ServiceCtx context)
         {
             return _applicationServiceServer.ListQualifiedUsers(context);
         }
 
-        [CommandHipc(150)] // 6.0.0+
+        [Command(150)] // 6.0.0+
         // IsUserAccountSwitchLocked() -> bool
         public ResultCode IsUserAccountSwitchLocked(ServiceCtx context)
         {
             // TODO: Account actually calls nn::arp::detail::IReader::GetApplicationControlProperty() with the current Pid and store the result (NACP file) internally.
             //       But since we use LibHac and we load one Application at a time, it's not necessary.
 
-            context.ResponseData.Write((byte)context.Device.Application.ControlData.Value.UserAccountSwitchLock);
+            context.ResponseData.Write(context.Device.Application.ControlData.Value.UserAccountSwitchLock);
 
             Logger.Stub?.PrintStub(LogClass.ServiceAcc);
 

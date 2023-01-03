@@ -9,7 +9,7 @@ using System.Reflection;
 using static ARMeilleure.Instructions.InstEmitHelper;
 using static ARMeilleure.Instructions.InstEmitSimdHelper;
 using static ARMeilleure.Instructions.InstEmitSimdHelper32;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -161,14 +161,33 @@ namespace ARMeilleure.Instructions
                 {
                     Operand toConvert = ExtractScalar(context, floatSize, op.Vm);
 
+                    Operand asInteger;
+
                     // TODO: Fast Path.
                     if (roundWithFpscr)
                     {
-                        toConvert = EmitRoundByRMode(context, toConvert);
-                    }
+                        MethodInfo info;
 
-                    // Round towards zero.
-                    Operand asInteger = EmitSaturateFloatToInt(context, toConvert, unsigned);
+                        if (floatSize == OperandType.FP64)
+                        {
+                            info = unsigned
+                                ? typeof(SoftFallback).GetMethod(nameof(SoftFallback.DoubleToUInt32))
+                                : typeof(SoftFallback).GetMethod(nameof(SoftFallback.DoubleToInt32));
+                        }
+                        else
+                        {
+                            info = unsigned
+                                ? typeof(SoftFallback).GetMethod(nameof(SoftFallback.FloatToUInt32))
+                                : typeof(SoftFallback).GetMethod(nameof(SoftFallback.FloatToInt32));
+                        }
+
+                        asInteger = context.Call(info, toConvert);
+                    }
+                    else
+                    {
+                        // Round towards zero.
+                        asInteger = EmitSaturateFloatToInt(context, toConvert, unsigned);
+                    }
 
                     InsertScalar(context, op.Vd, asInteger);
                 }
@@ -203,9 +222,6 @@ namespace ARMeilleure.Instructions
             FPRoundingMode roundMode;
             switch (rm)
             {
-                case 0b00:
-                    roundMode = FPRoundingMode.ToNearestAway;
-                    break;
                 case 0b01:
                     roundMode = FPRoundingMode.ToNearest;
                     break;
@@ -231,7 +247,7 @@ namespace ARMeilleure.Instructions
             bool unsigned = op.Opc == 0;
             int rm = op.Opc2 & 3;
 
-            if (Optimizations.UseSse41)
+            if (Optimizations.UseSse41 && rm != 0b00)
             {
                 EmitSse41ConvertInt32(context, RMToRoundMode(rm), !unsigned);
             }
@@ -255,77 +271,11 @@ namespace ARMeilleure.Instructions
                         break;
                 }
 
-                Operand asInteger = EmitSaturateFloatToInt(context, toConvert, unsigned);
+                Operand asInteger;
+
+                asInteger = EmitSaturateFloatToInt(context, toConvert, unsigned);
 
                 InsertScalar(context, op.Vd, asInteger);
-            }
-        }
-
-        public static void Vcvt_TB(ArmEmitterContext context)
-        {
-            OpCode32SimdCvtTB op = (OpCode32SimdCvtTB)context.CurrOp;
-
-            if (Optimizations.UseF16c)
-            {
-                Debug.Assert(!Optimizations.ForceLegacySse);
-
-                if (op.Op)
-                {
-                    Operand res = ExtractScalar(context, op.Size == 1 ? OperandType.FP64 : OperandType.FP32, op.Vm);
-                    if (op.Size == 1)
-                    {
-                        res = context.AddIntrinsic(Intrinsic.X86Cvtsd2ss, context.VectorZero(), res);
-                    }
-                    res = context.AddIntrinsic(Intrinsic.X86Vcvtps2ph, res, Const(X86GetRoundControl(FPRoundingMode.ToNearest)));
-                    res = context.VectorExtract16(res, 0);
-                    InsertScalar16(context, op.Vd, op.T, res);
-                }
-                else
-                {
-                    Operand res = context.VectorCreateScalar(ExtractScalar16(context, op.Vm, op.T));
-                    res = context.AddIntrinsic(Intrinsic.X86Vcvtph2ps, res);
-                    if (op.Size == 1)
-                    {
-                        res = context.AddIntrinsic(Intrinsic.X86Cvtss2sd, context.VectorZero(), res);
-                    }
-                    res = context.VectorExtract(op.Size == 1 ? OperandType.I64 : OperandType.I32, res, 0);
-                    InsertScalar(context, op.Vd, res);
-                }
-            }
-            else
-            {
-                if (op.Op)
-                {
-                    // Convert to half.
-
-                    Operand src = ExtractScalar(context, op.Size == 1 ? OperandType.FP64 : OperandType.FP32, op.Vm);
-
-                    MethodInfo method = op.Size == 1
-                        ? typeof(SoftFloat64_16).GetMethod(nameof(SoftFloat64_16.FPConvert))
-                        : typeof(SoftFloat32_16).GetMethod(nameof(SoftFloat32_16.FPConvert));
-
-                    context.StoreToContext();
-                    Operand res = context.Call(method, src);
-                    context.LoadFromContext();
-
-                    InsertScalar16(context, op.Vd, op.T, res);
-                }
-                else
-                {
-                    // Convert from half.
-
-                    Operand src = ExtractScalar16(context, op.Vm, op.T);
-
-                    MethodInfo method = op.Size == 1
-                        ? typeof(SoftFloat16_64).GetMethod(nameof(SoftFloat16_64.FPConvert))
-                        : typeof(SoftFloat16_32).GetMethod(nameof(SoftFloat16_32.FPConvert));
-
-                    context.StoreToContext();
-                    Operand res = context.Call(method, src);
-                    context.LoadFromContext();
-
-                    InsertScalar(context, op.Vd, res);
-                }
             }
         }
 
@@ -338,21 +288,15 @@ namespace ARMeilleure.Instructions
 
             int rm = op.Opc2 & 3;
 
-            if (Optimizations.UseSse41)
+            if (Optimizations.UseSse2 && rm != 0b00)
             {
                 EmitScalarUnaryOpSimd32(context, (m) =>
                 {
+                    Intrinsic inst = (op.Size & 1) == 0 ? Intrinsic.X86Roundss : Intrinsic.X86Roundsd;
+
                     FPRoundingMode roundMode = RMToRoundMode(rm);
 
-                    if (roundMode != FPRoundingMode.ToNearestAway)
-                    {
-                        Intrinsic inst = (op.Size & 1) == 0 ? Intrinsic.X86Roundss : Intrinsic.X86Roundsd;
-                        return context.AddIntrinsic(inst, m, Const(X86GetRoundControl(roundMode)));
-                    }
-                    else
-                    {
-                        return EmitSse41RoundToNearestWithTiesToAwayOpF(context, m, scalar: true);
-                    }
+                    return context.AddIntrinsic(inst, m, Const(X86GetRoundControl(roundMode)));
                 });
             }
             else
@@ -379,70 +323,6 @@ namespace ARMeilleure.Instructions
             }
         }
 
-        // VRINTA (vector).
-        public static void Vrinta_V(ArmEmitterContext context)
-        {
-            if (Optimizations.UseSse41)
-            {
-                EmitVectorUnaryOpSimd32(context, (m) =>
-                {
-                    return EmitSse41RoundToNearestWithTiesToAwayOpF(context, m, scalar: false);
-                });
-            }
-            else
-            {
-                EmitVectorUnaryOpF32(context, (m) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, m));
-            }
-        }
-
-        // VRINTM (vector).
-        public static void Vrintm_V(ArmEmitterContext context)
-        {
-            if (Optimizations.UseSse2)
-            {
-                EmitVectorUnaryOpSimd32(context, (m) =>
-                {
-                    return context.AddIntrinsic(Intrinsic.X86Roundps, m, Const(X86GetRoundControl(FPRoundingMode.TowardsMinusInfinity)));
-                });
-            }
-            else
-            {
-                EmitVectorUnaryOpF32(context, (m) => EmitUnaryMathCall(context, nameof(Math.Floor), m));
-            }
-        }
-
-        // VRINTN (vector).
-        public static void Vrintn_V(ArmEmitterContext context)
-        {
-            if (Optimizations.UseSse2)
-            {
-                EmitVectorUnaryOpSimd32(context, (m) =>
-                {
-                    return context.AddIntrinsic(Intrinsic.X86Roundps, m, Const(X86GetRoundControl(FPRoundingMode.ToNearest)));
-                });
-            }
-            else
-            {
-                EmitVectorUnaryOpF32(context, (m) => EmitRoundMathCall(context, MidpointRounding.ToEven, m));
-            }
-        }
-
-        // VRINTP (vector).
-        public static void Vrintp_V(ArmEmitterContext context)
-        {
-            if (Optimizations.UseSse2)
-            {
-                EmitVectorUnaryOpSimd32(context, (m) =>
-                {
-                    return context.AddIntrinsic(Intrinsic.X86Roundps, m, Const(X86GetRoundControl(FPRoundingMode.TowardsPlusInfinity)));
-                });
-            }
-            else
-            {
-                EmitVectorUnaryOpF32(context, (m) => EmitUnaryMathCall(context, nameof(Math.Ceiling), m));
-            }
-        }
-
         // VRINTZ (floating-point).
         public static void Vrint_Z(ArmEmitterContext context)
         {
@@ -465,9 +345,15 @@ namespace ARMeilleure.Instructions
         // VRINTX (floating-point).
         public static void Vrintx_S(ArmEmitterContext context)
         {
+            OpCode32SimdS op = (OpCode32SimdS)context.CurrOp;
+
+            bool doubleSize = (op.Size & 1) == 1;
+            string methodName = doubleSize ? nameof(SoftFallback.Round) : nameof(SoftFallback.RoundF);
+
             EmitScalarUnaryOpF32(context, (op1) =>
             {
-                return EmitRoundByRMode(context, op1);
+                MethodInfo info = typeof(SoftFallback).GetMethod(methodName);
+                return context.Call(info, op1);
             });
         }
 
@@ -500,20 +386,12 @@ namespace ARMeilleure.Instructions
                 Operand nRes = context.AddIntrinsic(Intrinsic.X86Cmpss, n, n, Const((int)CmpCondition.OrderedQ));
                 nRes = context.AddIntrinsic(Intrinsic.X86Pand, nRes, n);
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundss, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar: true);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundss, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand zero = context.VectorZero();
 
                 Operand nCmp;
-                Operand nIntOrLong2 = default;
-
+                Operand nIntOrLong2 = null;
                 if (!signed)
                 {
                     nCmp = context.AddIntrinsic(Intrinsic.X86Cmpss, nRes, zero, Const((int)CmpCondition.NotLessThanOrEqual));
@@ -558,20 +436,12 @@ namespace ARMeilleure.Instructions
                 Operand nRes = context.AddIntrinsic(Intrinsic.X86Cmpsd, n, n, Const((int)CmpCondition.OrderedQ));
                 nRes = context.AddIntrinsic(Intrinsic.X86Pand, nRes, n);
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundsd, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar: true);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundsd, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand zero = context.VectorZero();
 
                 Operand nCmp;
-                Operand nIntOrLong2 = default;
-
+                Operand nIntOrLong2 = null;
                 if (!signed)
                 {
                     nCmp = context.AddIntrinsic(Intrinsic.X86Cmpsd, nRes, zero, Const((int)CmpCondition.NotLessThanOrEqual));
@@ -640,8 +510,7 @@ namespace ARMeilleure.Instructions
                     Operand fpMaxValMask = X86GetAllElements(context, 0x4F000000); // 2.14748365E9f (2147483648)
 
                     Operand nInt = context.AddIntrinsic(Intrinsic.X86Cvtps2dq, nRes);
-                    Operand nInt2 = default;
-
+                    Operand nInt2 = null;
                     if (!signed)
                     {
                         nRes = context.AddIntrinsic(Intrinsic.X86Subps, nRes, fpMaxValMask);
@@ -682,8 +551,7 @@ namespace ARMeilleure.Instructions
                     Operand fpMaxValMask = X86GetAllElements(context, 0x43E0000000000000L); // 9.2233720368547760E18d (9223372036854775808)
 
                     Operand nLong = InstEmit.EmitSse2CvtDoubleToInt64OpF(context, nRes, false);
-                    Operand nLong2 = default;
-
+                    Operand nLong2 = null;
                     if (!signed)
                     {
                         nRes = context.AddIntrinsic(Intrinsic.X86Subpd, nRes, fpMaxValMask);

@@ -6,7 +6,7 @@ using System;
 
 using static ARMeilleure.Instructions.InstEmitHelper;
 using static ARMeilleure.Instructions.InstEmitMemoryHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -32,7 +32,7 @@ namespace ARMeilleure.Instructions
 
         public static void Ldm(ArmEmitterContext context)
         {
-            IOpCode32MemMult op = (IOpCode32MemMult)context.CurrOp;
+            OpCode32MemMult op = (OpCode32MemMult)context.CurrOp;
 
             Operand n = GetIntA32(context, op.Rn);
 
@@ -95,7 +95,7 @@ namespace ARMeilleure.Instructions
 
         public static void Stm(ArmEmitterContext context)
         {
-            IOpCode32MemMult op = (IOpCode32MemMult)context.CurrOp;
+            OpCode32MemMult op = (OpCode32MemMult)context.CurrOp;
 
             Operand n = context.Copy(GetIntA32(context, op.Rn));
 
@@ -151,12 +151,12 @@ namespace ARMeilleure.Instructions
 
         private static void EmitLoadOrStore(ArmEmitterContext context, int size, AccessType accType)
         {
-            IOpCode32Mem op = (IOpCode32Mem)context.CurrOp;
+            OpCode32Mem op = (OpCode32Mem)context.CurrOp;
 
-            Operand n = context.Copy(GetIntA32AlignedPC(context, op.Rn));
+            Operand n = context.Copy(GetIntA32(context, op.Rn));
             Operand m = GetMemM(context, setCarry: false);
 
-            Operand temp = default;
+            Operand temp = null;
 
             if (op.Index || op.WBack)
             {
@@ -204,15 +204,15 @@ namespace ARMeilleure.Instructions
 
                     context.BranchIfTrue(lblBigEndian, GetFlag(PState.EFlag));
 
-                    Load(op.Rt, 0, WordSizeLog2);
-                    Load(op.Rt2, 4, WordSizeLog2);
+                    Load(op.Rt,     0, WordSizeLog2);
+                    Load(op.Rt | 1, 4, WordSizeLog2);
 
                     context.Branch(lblEnd);
 
                     context.MarkLabel(lblBigEndian);
 
-                    Load(op.Rt2, 0, WordSizeLog2);
-                    Load(op.Rt, 4, WordSizeLog2);
+                    Load(op.Rt | 1, 0, WordSizeLog2);
+                    Load(op.Rt,     4, WordSizeLog2);
 
                     context.MarkLabel(lblEnd);
                 }
@@ -237,15 +237,15 @@ namespace ARMeilleure.Instructions
 
                     context.BranchIfTrue(lblBigEndian, GetFlag(PState.EFlag));
 
-                    Store(op.Rt, 0, WordSizeLog2);
-                    Store(op.Rt2, 4, WordSizeLog2);
+                    Store(op.Rt,     0, WordSizeLog2);
+                    Store(op.Rt | 1, 4, WordSizeLog2);
 
                     context.Branch(lblEnd);
 
                     context.MarkLabel(lblBigEndian);
 
-                    Store(op.Rt2, 0, WordSizeLog2);
-                    Store(op.Rt, 4, WordSizeLog2);
+                    Store(op.Rt | 1, 0, WordSizeLog2);
+                    Store(op.Rt,     4, WordSizeLog2);
 
                     context.MarkLabel(lblEnd);
                 }
@@ -254,12 +254,6 @@ namespace ARMeilleure.Instructions
                     Store(op.Rt, 0, size);
                 }
             }
-        }
-
-        public static void Adr(ArmEmitterContext context)
-        {
-            IOpCode32Adr op = (IOpCode32Adr)context.CurrOp;
-            SetIntA32(context, op.Rd, Const(op.Immediate));
         }
     }
 }

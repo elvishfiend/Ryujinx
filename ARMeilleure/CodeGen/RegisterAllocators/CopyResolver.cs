@@ -2,8 +2,8 @@ using ARMeilleure.IntermediateRepresentation;
 using System;
 using System.Collections.Generic;
 
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
-using static ARMeilleure.IntermediateRepresentation.Operation.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
+using static ARMeilleure.IntermediateRepresentation.OperationHelper;
 
 namespace ARMeilleure.CodeGen.RegisterAllocators
 {
@@ -11,7 +11,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
     {
         private class ParallelCopy
         {
-            private readonly struct Copy
+            private struct Copy
             {
                 public Register Dest   { get; }
                 public Register Source { get; }
@@ -26,7 +26,7 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
                 }
             }
 
-            private readonly List<Copy> _copies;
+            private List<Copy> _copies;
 
             public int Count => _copies.Count;
 
@@ -147,11 +147,20 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
             }
         }
 
-        private Queue<Operation> _fillQueue = null;
-        private Queue<Operation> _spillQueue = null;
-        private ParallelCopy _parallelCopy = null;
+        private Queue<Operation> _fillQueue  = new Queue<Operation>();
+        private Queue<Operation> _spillQueue = new Queue<Operation>();
+
+        private ParallelCopy _parallelCopy;
 
         public bool HasCopy { get; private set; }
+
+        public CopyResolver()
+        {
+            _fillQueue  = new Queue<Operation>();
+            _spillQueue = new Queue<Operation>();
+
+            _parallelCopy = new ParallelCopy();
+        }
 
         public void AddSplit(LiveInterval left, LiveInterval right)
         {
@@ -186,12 +195,8 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
 
         private void AddSplitFill(LiveInterval left, LiveInterval right, OperandType type)
         {
-            if (_fillQueue == null)
-            {
-                _fillQueue = new Queue<Operation>();
-            }
-
             Operand register = GetRegister(right.Register, type);
+
             Operand offset = Const(left.SpillOffset);
 
             _fillQueue.Enqueue(Operation(Instruction.Fill, register, offset));
@@ -201,26 +206,17 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
 
         private void AddSplitSpill(LiveInterval left, LiveInterval right, OperandType type)
         {
-            if (_spillQueue == null)
-            {
-                _spillQueue = new Queue<Operation>();
-            }
-
             Operand offset = Const(right.SpillOffset);
+
             Operand register = GetRegister(left.Register, type);
 
-            _spillQueue.Enqueue(Operation(Instruction.Spill, default, offset, register));
+            _spillQueue.Enqueue(Operation(Instruction.Spill, null, offset, register));
 
             HasCopy = true;
         }
 
         private void AddSplitCopy(LiveInterval left, LiveInterval right, OperandType type)
         {
-            if (_parallelCopy == null)
-            {
-                _parallelCopy = new ParallelCopy();
-            }
-
             _parallelCopy.AddCopy(right.Register, left.Register, type);
 
             HasCopy = true;
@@ -230,22 +226,16 @@ namespace ARMeilleure.CodeGen.RegisterAllocators
         {
             List<Operation> sequence = new List<Operation>();
 
-            if (_spillQueue != null)
+            while (_spillQueue.TryDequeue(out Operation spillOp))
             {
-                while (_spillQueue.TryDequeue(out Operation spillOp))
-                {
-                    sequence.Add(spillOp);
-                }
+                sequence.Add(spillOp);
             }
 
-            _parallelCopy?.Sequence(sequence);
+            _parallelCopy.Sequence(sequence);
 
-            if (_fillQueue != null)
+            while (_fillQueue.TryDequeue(out Operation fillOp))
             {
-                while (_fillQueue.TryDequeue(out Operation fillOp))
-                {
-                    sequence.Add(fillOp);
-                }
+                sequence.Add(fillOp);
             }
 
             return sequence.ToArray();

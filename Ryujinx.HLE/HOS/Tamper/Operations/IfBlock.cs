@@ -6,26 +6,27 @@ namespace Ryujinx.HLE.HOS.Tamper.Operations
     class IfBlock : IOperation
     {
         private ICondition _condition;
-        private IEnumerable<IOperation> _operationsThen;
-        private IEnumerable<IOperation> _operationsElse;
+        private IEnumerable<IOperation> _operations;
 
-        public IfBlock(ICondition condition, IEnumerable<IOperation> operationsThen, IEnumerable<IOperation> operationsElse)
+        public IfBlock(ICondition condition, IEnumerable<IOperation> operations)
         {
             _condition = condition;
-            _operationsThen = operationsThen;
-            _operationsElse = operationsElse;
+            _operations = operations;
+        }
+
+        public IfBlock(ICondition condition, params IOperation[] operations)
+        {
+            _operations = operations;
         }
 
         public void Execute()
         {
-            IEnumerable<IOperation> operations = _condition.Evaluate() ? _operationsThen : _operationsElse;
-
-            if (operations == null)
+            if (!_condition.Evaluate())
             {
                 return;
             }
 
-            foreach (IOperation op in operations)
+            foreach (IOperation op in _operations)
             {
                 op.Execute();
             }

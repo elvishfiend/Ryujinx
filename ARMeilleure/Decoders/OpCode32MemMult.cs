@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace ARMeilleure.Decoders
 {
     class OpCode32MemMult : OpCode32, IOpCode32MemMult
@@ -25,7 +23,14 @@ namespace ARMeilleure.Decoders
 
             RegisterMask = opCode & 0xffff;
 
-            int regsSize = BitOperations.PopCount((uint)RegisterMask) * 4;
+            int regsSize = 0;
+
+            for (int index = 0; index < 16; index++)
+            {
+                regsSize += (RegisterMask >> index) & 1;
+            }
+
+            regsSize *= 4;
 
             if (!u)
             {

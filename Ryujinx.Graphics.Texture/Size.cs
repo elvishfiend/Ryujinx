@@ -1,6 +1,9 @@
+using Ryujinx.Common;
+using System;
+
 namespace Ryujinx.Graphics.Texture
 {
-    public readonly struct Size
+    public struct Size
     {
         public int Width  { get; }
         public int Height { get; }

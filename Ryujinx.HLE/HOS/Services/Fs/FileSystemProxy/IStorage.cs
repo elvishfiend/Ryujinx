@@ -1,64 +1,68 @@
 using LibHac;
-using LibHac.Common;
-using LibHac.Sf;
 using Ryujinx.HLE.HOS.Ipc;
+using System;
 
 namespace Ryujinx.HLE.HOS.Services.Fs.FileSystemProxy
 {
-    class IStorage : DisposableIpcService
+    class IStorage : IpcService, IDisposable
     {
-        private SharedRef<LibHac.FsSrv.Sf.IStorage> _baseStorage;
+        private LibHac.Fs.IStorage _baseStorage;
 
-        public IStorage(ref SharedRef<LibHac.FsSrv.Sf.IStorage> baseStorage)
+        public IStorage(LibHac.Fs.IStorage baseStorage)
         {
-            _baseStorage = SharedRef<LibHac.FsSrv.Sf.IStorage>.CreateMove(ref baseStorage);
+            _baseStorage = baseStorage;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // Read(u64 offset, u64 length) -> buffer<u8, 0x46, 0> buffer
         public ResultCode Read(ServiceCtx context)
         {
-            ulong offset = context.RequestData.ReadUInt64();
-            ulong size   = context.RequestData.ReadUInt64();
+            long offset = context.RequestData.ReadInt64();
+            long size   = context.RequestData.ReadInt64();
 
             if (context.Request.ReceiveBuff.Count > 0)
             {
-                ulong bufferAddress = context.Request.ReceiveBuff[0].Position;
-                ulong bufferLen = context.Request.ReceiveBuff[0].Size;
+                IpcBuffDesc buffDesc = context.Request.ReceiveBuff[0];
 
                 // Use smaller length to avoid overflows.
-                if (size > bufferLen)
+                if (size > buffDesc.Size)
                 {
-                    size = bufferLen;
+                    size = buffDesc.Size;
                 }
 
-                using (var region = context.Memory.GetWritableRegion(bufferAddress, (int)bufferLen, true))
-                {
-                    Result result = _baseStorage.Get.Read((long)offset, new OutBuffer(region.Memory.Span), (long)size);
+                byte[] data = new byte[size];
 
-                    return (ResultCode)result.Value;
-                }
+                Result result = _baseStorage.Read(offset, data);
+
+                context.Memory.Write((ulong)buffDesc.Position, data);
+
+                return (ResultCode)result.Value;
             }
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // GetSize() -> u64 size
         public ResultCode GetSize(ServiceCtx context)
         {
-            Result result = _baseStorage.Get.GetSize(out long size);
+            Result result = _baseStorage.GetSize(out long size);
 
             context.ResponseData.Write(size);
 
             return (ResultCode)result.Value;
         }
 
-        protected override void Dispose(bool isDisposing)
+        public void Dispose()
         {
-            if (isDisposing)
+            Dispose(true);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
             {
-                _baseStorage.Destroy();
+                _baseStorage?.Dispose();
             }
         }
     }

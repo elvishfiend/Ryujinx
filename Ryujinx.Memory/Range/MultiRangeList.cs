@@ -1,21 +1,27 @@
-﻿using Ryujinx.Common.Collections;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 
 namespace Ryujinx.Memory.Range
 {
+    /// <summary>
+    /// Sorted list of ranges that supports binary search.
+    /// </summary>
+    /// <typeparam name="T">Type of the range.</typeparam>
     public class MultiRangeList<T> : IEnumerable<T> where T : IMultiRangeItem
     {
-        private readonly IntervalTree<ulong, T> _items;
+        private const int ArrayGrowthSize = 32;
 
-        public int Count { get; private set; }
+        private readonly List<T> _items;
+
+        public int Count => _items.Count;
 
         /// <summary>
         /// Creates a new range list.
         /// </summary>
         public MultiRangeList()
         {
-            _items = new IntervalTree<ulong, T>();
+            _items = new List<T>();
         }
 
         /// <summary>
@@ -24,21 +30,14 @@ namespace Ryujinx.Memory.Range
         /// <param name="item">The item to be added</param>
         public void Add(T item)
         {
-            MultiRange range = item.Range;
+            int index = BinarySearch(item.BaseAddress);
 
-            for (int i = 0; i < range.Count; i++)
+            if (index < 0)
             {
-                var subrange = range.GetSubRange(i);
-
-                if (IsInvalid(ref subrange))
-                {
-                    continue;
-                }
-
-                _items.Add(subrange.Address, subrange.EndAddress, item);
+                index = ~index;
             }
 
-            Count++;
+            _items.Insert(index, item);
         }
 
         /// <summary>
@@ -48,29 +47,34 @@ namespace Ryujinx.Memory.Range
         /// <returns>True if the item was removed, or false if it was not found</returns>
         public bool Remove(T item)
         {
-            MultiRange range = item.Range;
+            int index = BinarySearch(item.BaseAddress);
 
-            int removed = 0;
-
-            for (int i = 0; i < range.Count; i++)
+            if (index >= 0)
             {
-                var subrange = range.GetSubRange(i);
-
-                if (IsInvalid(ref subrange))
+                while (index > 0 && _items[index - 1].BaseAddress == item.BaseAddress)
                 {
-                    continue;
+                    index--;
                 }
 
-                removed += _items.Remove(subrange.Address, item);
+                while (index < _items.Count)
+                {
+                    if (_items[index].Equals(item))
+                    {
+                        _items.RemoveAt(index);
+
+                        return true;
+                    }
+
+                    if (_items[index].BaseAddress > item.BaseAddress)
+                    {
+                        break;
+                    }
+
+                    index++;
+                }
             }
 
-            if (removed > 0)
-            {
-                // All deleted intervals are for the same item - the one we removed.
-                Count--;
-            }
-
-            return removed > 0;
+            return false;
         }
 
         /// <summary>
@@ -93,64 +97,22 @@ namespace Ryujinx.Memory.Range
         /// <returns>The number of overlapping items found</returns>
         public int FindOverlaps(MultiRange range, ref T[] output)
         {
-            int overlapCount = 0;
+            int outputIndex = 0;
 
-            for (int i = 0; i < range.Count; i++)
+            foreach (T item in _items)
             {
-                var subrange = range.GetSubRange(i);
-
-                if (IsInvalid(ref subrange))
+                if (item.Range.OverlapsWith(range))
                 {
-                    continue;
-                }
-
-                overlapCount = _items.Get(subrange.Address, subrange.EndAddress, ref output, overlapCount);
-            }
-
-            // Remove any duplicates, caused by items having multiple sub range nodes in the tree.
-            if (overlapCount > 1)
-            {
-                int insertPtr = 0;
-                for (int i = 0; i < overlapCount; i++)
-                {
-                    T item = output[i];
-                    bool duplicate = false;
-
-                    for (int j = insertPtr - 1; j >= 0; j--)
+                    if (outputIndex == output.Length)
                     {
-                        if (item.Equals(output[j]))
-                        {
-                            duplicate = true;
-                            break;
-                        }
+                        Array.Resize(ref output, outputIndex + ArrayGrowthSize);
                     }
 
-                    if (!duplicate)
-                    {
-                        if (insertPtr != i)
-                        {
-                            output[insertPtr] = item;
-                        }
-
-                        insertPtr++;
-                    }
+                    output[outputIndex++] = item;
                 }
-
-                overlapCount = insertPtr;
             }
 
-            return overlapCount;
-        }
-
-        /// <summary>
-        /// Checks if a given sub-range of memory is invalid.
-        /// Those are used to represent unmapped memory regions (holes in the region mapping).
-        /// </summary>
-        /// <param name="subRange">Memory range to checl</param>
-        /// <returns>True if the memory range is considered invalid, false otherwise</returns>
-        private static bool IsInvalid(ref MemoryRange subRange)
-        {
-            return subRange.Address == ulong.MaxValue;
+            return outputIndex;
         }
 
         /// <summary>
@@ -161,50 +123,82 @@ namespace Ryujinx.Memory.Range
         /// <returns>The number of matches found</returns>
         public int FindOverlaps(ulong baseAddress, ref T[] output)
         {
-            int count = _items.Get(baseAddress, ref output);
+            int index = BinarySearch(baseAddress);
 
-            // Only output items with matching base address
-            int insertPtr = 0;
-            for (int i = 0; i < count; i++)
+            int outputIndex = 0;
+
+            if (index >= 0)
             {
-                if (output[i].BaseAddress == baseAddress)
+                while (index > 0 && _items[index - 1].BaseAddress == baseAddress)
                 {
-                    if (i != insertPtr)
+                    index--;
+                }
+
+                while (index < _items.Count)
+                {
+                    T overlap = _items[index++];
+
+                    if (overlap.BaseAddress != baseAddress)
                     {
-                        output[insertPtr] = output[i];
+                        break;
                     }
 
-                    insertPtr++;
+                    if (outputIndex == output.Length)
+                    {
+                        Array.Resize(ref output, outputIndex + ArrayGrowthSize);
+                    }
+
+                    output[outputIndex++] = overlap;
                 }
             }
 
-            return insertPtr;
+            return outputIndex;
         }
 
-        private List<T> GetList()
+        /// <summary>
+        /// Performs binary search on the internal list of items.
+        /// </summary>
+        /// <param name="address">Address to find</param>
+        /// <returns>List index of the item, or complement index of nearest item with lower value on the list</returns>
+        private int BinarySearch(ulong address)
         {
-            var items = _items.AsList();
-            var result = new List<T>();
+            int left = 0;
+            int right = _items.Count - 1;
 
-            foreach (RangeNode<ulong, T> item in items)
+            while (left <= right)
             {
-                if (item.Start == item.Value.BaseAddress)
+                int range = right - left;
+
+                int middle = left + (range >> 1);
+
+                T item = _items[middle];
+
+                if (item.BaseAddress == address)
                 {
-                    result.Add(item.Value);
+                    return middle;
+                }
+
+                if (address < item.BaseAddress)
+                {
+                    right = middle - 1;
+                }
+                else
+                {
+                    left = middle + 1;
                 }
             }
 
-            return result;
+            return ~left;
         }
 
         public IEnumerator<T> GetEnumerator()
         {
-            return GetList().GetEnumerator();
+            return _items.GetEnumerator();
         }
 
         IEnumerator IEnumerable.GetEnumerator()
         {
-            return GetList().GetEnumerator();
+            return _items.GetEnumerator();
         }
     }
 }

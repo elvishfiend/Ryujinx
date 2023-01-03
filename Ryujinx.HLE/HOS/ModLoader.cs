@@ -2,9 +2,7 @@ using LibHac.Common;
 using LibHac.Fs;
 using LibHac.Fs.Fsa;
 using LibHac.FsSystem;
-using LibHac.Loader;
-using LibHac.Tools.FsSystem;
-using LibHac.Tools.FsSystem.RomFs;
+using LibHac.FsSystem.RomFs;
 using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
 using Ryujinx.HLE.Loaders.Mods;
@@ -14,9 +12,9 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
 using System.IO;
+using Ryujinx.HLE.Loaders.Npdm;
 using Ryujinx.HLE.HOS.Kernel.Process;
 using System.Globalization;
-using Path = System.IO.Path;
 
 namespace Ryujinx.HLE.HOS
 {
@@ -36,7 +34,7 @@ namespace Ryujinx.HLE.HOS
         private const string AmsNroPatchDir = "nro_patches";
         private const string AmsKipPatchDir = "kip_patches";
 
-        public readonly struct Mod<T> where T : FileSystemInfo
+        public struct Mod<T> where T : FileSystemInfo
         {
             public readonly string Name;
             public readonly T Path;
@@ -136,8 +134,7 @@ namespace Ryujinx.HLE.HOS
 
         private static bool StrEquals(string s1, string s2) => string.Equals(s1, s2, StringComparison.OrdinalIgnoreCase);
 
-        public string GetModsBasePath()   => EnsureBaseDirStructure(AppDataManager.GetModsPath());
-        public string GetSdModsBasePath() => EnsureBaseDirStructure(AppDataManager.GetSdModsPath());
+        public string GetModsBasePath() => EnsureBaseDirStructure(AppDataManager.GetModsPath());
 
         private string EnsureBaseDirStructure(string modsBasePath)
         {
@@ -161,7 +158,7 @@ namespace Ryujinx.HLE.HOS
 
             if (titleModsPath == null)
             {
-                Logger.Info?.Print(LogClass.ModLoader, $"Creating mods directory for Title {titleId.ToUpper()}");
+                Logger.Info?.Print(LogClass.ModLoader, $"Creating mods dir for Title {titleId.ToUpper()}");
                 titleModsPath = contentsDir.CreateSubdirectory(titleId);
             }
 
@@ -473,10 +470,8 @@ namespace Ryujinx.HLE.HOS
                                          .Where(f => f.Type == DirectoryEntryType.File && !fileSet.Contains(f.FullPath))
                                          .OrderBy(f => f.FullPath, StringComparer.Ordinal))
             {
-                using var file = new UniqueRef<IFile>();
-
-                baseRom.OpenFile(ref file.Ref(), entry.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
-                builder.AddFile(entry.FullPath, file.Release());
+                baseRom.OpenFile(out IFile file, entry.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+                builder.AddFile(entry.FullPath, file);
             }
 
             Logger.Info?.Print(LogClass.ModLoader, "Building new RomFS...");
@@ -492,12 +487,10 @@ namespace Ryujinx.HLE.HOS
                                     .Where(f => f.Type == DirectoryEntryType.File)
                                     .OrderBy(f => f.FullPath, StringComparer.Ordinal))
             {
-                using var file = new UniqueRef<IFile>();
-
-                fs.OpenFile(ref file.Ref(), entry.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+                fs.OpenFile(out IFile file, entry.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
                 if (fileSet.Add(entry.FullPath))
                 {
-                    builder.AddFile(entry.FullPath, file.Release());
+                    builder.AddFile(entry.FullPath, file);
                 }
                 else
                 {
@@ -529,7 +522,7 @@ namespace Ryujinx.HLE.HOS
         {
             public BitVector32 Stubs;
             public BitVector32 Replaces;
-            public MetaLoader Npdm;
+            public Npdm Npdm;
 
             public bool Modified => (Stubs.Data | Replaces.Data) != 0;
         }
@@ -589,10 +582,9 @@ namespace Ryujinx.HLE.HOS
                         continue;
                     }
 
-                    modLoadResult.Npdm = new MetaLoader();
-                    modLoadResult.Npdm.Load(File.ReadAllBytes(npdmFile.FullName));
+                    modLoadResult.Npdm = new Npdm(npdmFile.OpenRead());
 
-                    Logger.Info?.Print(LogClass.ModLoader, "main.npdm replaced");
+                    Logger.Info?.Print(LogClass.ModLoader, $"main.npdm replaced");
                 }
             }
 
@@ -666,20 +658,7 @@ namespace Ryujinx.HLE.HOS
 
                 Logger.Info?.Print(LogClass.ModLoader, $"Installing cheat '{cheat.Name}'");
 
-                tamperMachine.InstallAtmosphereCheat(cheat.Name, cheatId, cheat.Instructions, tamperInfo, exeAddress);
-            }
-
-            EnableCheats(titleId, tamperMachine);
-        }
-
-        internal void EnableCheats(ulong titleId, TamperMachine tamperMachine)
-        {
-            var contentDirectory = FindTitleDir(new DirectoryInfo(Path.Combine(GetModsBasePath(), AmsContentsDir)), $"{titleId:x16}");
-            string enabledCheatsPath = Path.Combine(contentDirectory.FullName, CheatDir, "enabled.txt");
-
-            if (File.Exists(enabledCheatsPath))
-            {
-                tamperMachine.EnableCheats(File.ReadAllLines(enabledCheatsPath));
+                tamperMachine.InstallAtmosphereCheat(cheat.Instructions, tamperInfo, exeAddress);
             }
         }
 
@@ -696,7 +675,7 @@ namespace Ryujinx.HLE.HOS
 
             var buildIds = programs.Select(p => p switch
             {
-                NsoExecutable nso => BitConverter.ToString(nso.BuildId.ItemsRo.ToArray()).Replace("-", "").TrimEnd('0'),
+                NsoExecutable nso => BitConverter.ToString(nso.BuildId.Bytes.ToArray()).Replace("-", "").TrimEnd('0'),
                 NroExecutable nro => BitConverter.ToString(nro.Header.BuildId).Replace("-", "").TrimEnd('0'),
                 _ => string.Empty
             }).ToList();

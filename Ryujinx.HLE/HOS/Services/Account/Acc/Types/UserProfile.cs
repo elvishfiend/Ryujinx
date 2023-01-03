@@ -1,87 +1,37 @@
-﻿using System;
+﻿using Ryujinx.HLE.Utilities;
+using System;
 
 namespace Ryujinx.HLE.HOS.Services.Account.Acc
 {
-    public class UserProfile
+    class UserProfile
     {
-        public UserId UserId { get; }
+        private static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        public long LastModifiedTimestamp { get; set; }
+        public UserId UserId { get; private set; }
 
-        private string _name;
+        public string Name { get; private set; }
 
-        public string Name
-        {
-            get => _name;
-            set
-            {
-                _name = value;
+        public long LastModifiedTimestamp { get; private set; }
 
-                UpdateLastModifiedTimestamp();
-            }
-        }
+        public AccountState AccountState    { get; set; }
+        public AccountState OnlinePlayState { get; set; }
 
-        private byte[] _image;
-
-        public byte[] Image
-        {
-            get => _image;
-            set
-            {
-                _image = value;
-
-                UpdateLastModifiedTimestamp();
-            }
-        }
-
-        private AccountState _accountState;
-
-        public AccountState AccountState
-        {
-            get => _accountState;
-            set
-            {
-                _accountState = value;
-
-                UpdateLastModifiedTimestamp();
-            }
-        }
-
-        public AccountState _onlinePlayState;
-
-        public AccountState OnlinePlayState
-        {
-            get => _onlinePlayState;
-            set
-            {
-                _onlinePlayState = value;
-
-                UpdateLastModifiedTimestamp();
-            }
-        }
-
-        public UserProfile(UserId userId, string name, byte[] image, long lastModifiedTimestamp = 0)
+        public UserProfile(UserId userId, string name)
         {
             UserId = userId;
             Name   = name;
-            Image  = image;
+
+            LastModifiedTimestamp = 0;
 
             AccountState    = AccountState.Closed;
             OnlinePlayState = AccountState.Closed;
 
-            if (lastModifiedTimestamp != 0)
-            {
-                LastModifiedTimestamp = lastModifiedTimestamp;
-            }
-            else
-            {
-                UpdateLastModifiedTimestamp();
-            }
+            UpdateTimestamp();
         }
 
-        private void UpdateLastModifiedTimestamp()
+        private void UpdateTimestamp()
         {
-            LastModifiedTimestamp = (long)(DateTime.Now - DateTime.UnixEpoch).TotalSeconds;
+            LastModifiedTimestamp = (long)(DateTime.Now - Epoch).TotalSeconds;
         }
     }
 }

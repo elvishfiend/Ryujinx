@@ -2,10 +2,9 @@
 {
     class OpCode32SimdRegWide : OpCode32SimdReg
     {
-        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdRegWide(inst, address, opCode, false);
-        public new static OpCode CreateT32(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdRegWide(inst, address, opCode, true);
+        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdRegWide(inst, address, opCode);
 
-        public OpCode32SimdRegWide(InstDescriptor inst, ulong address, int opCode, bool isThumb) : base(inst, address, opCode, isThumb)
+        public OpCode32SimdRegWide(InstDescriptor inst, ulong address, int opCode) : base(inst, address, opCode)
         {
             Q = false;
             RegisterSize = RegisterSize.Simd64;

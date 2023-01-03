@@ -1,4 +1,4 @@
-﻿using Ryujinx.Cpu;
+﻿using Ryujinx.HLE.HOS.Kernel.Threading;
 
 namespace Ryujinx.HLE.HOS.Services.Time.Clock
 {
@@ -17,11 +17,11 @@ namespace Ryujinx.HLE.HOS.Services.Time.Clock
             _cachedRawTimePoint = TimeSpanType.Zero;
         }
 
-        public override SteadyClockTimePoint GetTimePoint(ITickSource tickSource)
+        public override SteadyClockTimePoint GetTimePoint(KThread thread)
         {
             SteadyClockTimePoint result = new SteadyClockTimePoint
             {
-                TimePoint     = GetCurrentRawTimePoint(tickSource).ToSeconds(),
+                TimePoint     = GetCurrentRawTimePoint(thread).ToSeconds(),
                 ClockSourceId = GetClockSourceId()
             };
 
@@ -48,9 +48,19 @@ namespace Ryujinx.HLE.HOS.Services.Time.Clock
             _internalOffset = internalOffset;
         }
 
-        public override TimeSpanType GetCurrentRawTimePoint(ITickSource tickSource)
+        public override TimeSpanType GetCurrentRawTimePoint(KThread thread)
         {
-            TimeSpanType ticksTimeSpan = TimeSpanType.FromTicks(tickSource.Counter, tickSource.Frequency);
+            TimeSpanType ticksTimeSpan;
+
+            // As this may be called before the guest code, we support passing a null thread to make this api usable.
+            if (thread == null)
+            {
+                ticksTimeSpan = TimeSpanType.FromSeconds(0);
+            }
+            else
+            {
+                ticksTimeSpan = TimeSpanType.FromTicks(thread.Context.CntpctEl0, thread.Context.CntfrqEl0);
+            }
 
             TimeSpanType rawTimePoint = new TimeSpanType(_setupValue.NanoSeconds + ticksTimeSpan.NanoSeconds);
 

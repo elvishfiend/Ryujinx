@@ -1,21 +1,15 @@
 using Ryujinx.Common;
 using Ryujinx.Common.Logging;
-using Ryujinx.Common.Utilities;
 using Ryujinx.HLE.HOS.Services.Nifm.StaticService.GeneralService;
 using Ryujinx.HLE.HOS.Services.Nifm.StaticService.Types;
 using System;
 using System.Net.NetworkInformation;
-using System.Runtime.CompilerServices;
-using System.Text;
 
 namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
 {
-    class IGeneralService : DisposableIpcService
+    class IGeneralService : IpcService, IDisposable
     {
         private GeneralServiceDetail _generalServiceDetail;
-
-        private IPInterfaceProperties _targetPropertiesCache = null;
-        private UnicastIPAddressInformation _targetAddressInfoCache = null;
 
         public IGeneralService()
         {
@@ -25,25 +19,23 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
                 IsAnyInternetRequestAccepted = true // NOTE: Why not accept any internet request?
             };
 
-            NetworkChange.NetworkAddressChanged += new NetworkAddressChangedEventHandler(LocalInterfaceCacheHandler);
-
             GeneralServiceManager.Add(_generalServiceDetail);
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetClientId() -> buffer<nn::nifm::ClientId, 0x1a, 4>
         public ResultCode GetClientId(ServiceCtx context)
         {
-            ulong position = context.Request.RecvListBuff[0].Position;
+            long position = context.Request.RecvListBuff[0].Position;
 
-            context.Response.PtrBuff[0] = context.Response.PtrBuff[0].WithSize(sizeof(int));
+            context.Response.PtrBuff[0] = context.Response.PtrBuff[0].WithSize(4);
 
-            context.Memory.Write(position, _generalServiceDetail.ClientId);
+            context.Memory.Write((ulong)position, _generalServiceDetail.ClientId);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // CreateRequest(u32 version) -> object<nn::nifm::detail::IRequest>
         public ResultCode CreateRequest(ServiceCtx context)
         {
@@ -59,39 +51,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(5)]
-        // GetCurrentNetworkProfile() -> buffer<nn::nifm::detail::sf::NetworkProfileData, 0x1a, 0x17c>
-        public ResultCode GetCurrentNetworkProfile(ServiceCtx context)
-        {
-            ulong networkProfileDataPosition = context.Request.RecvListBuff[0].Position;
-
-            (IPInterfaceProperties interfaceProperties, UnicastIPAddressInformation unicastAddress) = GetLocalInterface();
-
-            if (interfaceProperties == null || unicastAddress == null)
-            {
-                return ResultCode.NoInternetConnection;
-            }
-
-            Logger.Info?.Print(LogClass.ServiceNifm, $"Console's local IP is \"{unicastAddress.Address}\".");
-
-            context.Response.PtrBuff[0] = context.Response.PtrBuff[0].WithSize((uint)Unsafe.SizeOf<NetworkProfileData>());
-
-            NetworkProfileData networkProfile = new NetworkProfileData
-            {
-                Uuid = UInt128Utils.CreateRandom()
-            };
-
-            networkProfile.IpSettingData.IpAddressSetting = new IpAddressSetting(interfaceProperties, unicastAddress);
-            networkProfile.IpSettingData.DnsSetting       = new DnsSetting(interfaceProperties);
-
-            "RyujinxNetwork"u8.CopyTo(networkProfile.Name.AsSpan());
-
-            context.Memory.Write(networkProfileDataPosition, networkProfile);
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(12)]
+        [Command(12)]
         // GetCurrentIpAddress() -> nn::nifm::IpV4Address
         public ResultCode GetCurrentIpAddress(ServiceCtx context)
         {
@@ -109,13 +69,13 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(15)]
+        [Command(15)]
         // GetCurrentIpConfigInfo() -> (nn::nifm::IpAddressSetting, nn::nifm::DnsSetting)
         public ResultCode GetCurrentIpConfigInfo(ServiceCtx context)
         {
             (IPInterfaceProperties interfaceProperties, UnicastIPAddressInformation unicastAddress) = GetLocalInterface();
 
-            if (interfaceProperties == null || unicastAddress == null)
+            if (interfaceProperties == null)
             {
                 return ResultCode.NoInternetConnection;
             }
@@ -128,7 +88,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(18)]
+        [Command(18)]
         // GetInternetConnectionStatus() -> nn::nifm::detail::sf::InternetConnectionStatus
         public ResultCode GetInternetConnectionStatus(ServiceCtx context)
         {
@@ -149,14 +109,14 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(21)]
+        [Command(21)]
         // IsAnyInternetRequestAccepted(buffer<nn::nifm::ClientId, 0x19, 4>) -> bool
         public ResultCode IsAnyInternetRequestAccepted(ServiceCtx context)
         {
-            ulong position = context.Request.PtrBuff[0].Position;
-            ulong size     = context.Request.PtrBuff[0].Size;
+            long position = context.Request.PtrBuff[0].Position;
+            long size     = context.Request.PtrBuff[0].Size;
 
-            int clientId = context.Memory.Read<int>(position);
+            int clientId = context.Memory.Read<int>((ulong)position);
 
             context.ResponseData.Write(GeneralServiceManager.Get(clientId).IsAnyInternetRequestAccepted);
 
@@ -170,11 +130,6 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
                 return (null, null);
             }
 
-            if (_targetPropertiesCache != null && _targetAddressInfoCache != null)
-            {
-                return (_targetPropertiesCache, _targetAddressInfoCache);
-            }
-
             IPInterfaceProperties       targetProperties  = null;
             UnicastIPAddressInformation targetAddressInfo = null;
 
@@ -183,11 +138,11 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             foreach (NetworkInterface adapter in interfaces)
             {
                 // Ignore loopback and non IPv4 capable interface.
-                if (targetProperties == null && adapter.NetworkInterfaceType != NetworkInterfaceType.Loopback && adapter.Supports(NetworkInterfaceComponent.IPv4))
+                if (adapter.NetworkInterfaceType != NetworkInterfaceType.Loopback && adapter.Supports(NetworkInterfaceComponent.IPv4))
                 {
                     IPInterfaceProperties properties = adapter.GetIPProperties();
 
-                    if (properties.GatewayAddresses.Count > 0 && properties.DnsAddresses.Count > 0)
+                    if (properties.GatewayAddresses.Count > 0 && properties.DnsAddresses.Count > 1)
                     {
                         foreach (UnicastIPAddressInformation info in properties.UnicastAddresses)
                         {
@@ -201,31 +156,21 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
                             }
                         }
                     }
+
+                    // Found the target interface, stop here.
+                    if (targetProperties != null)
+                    {
+                        break;
+                    }
                 }
             }
-
-            _targetPropertiesCache  = targetProperties;
-            _targetAddressInfoCache = targetAddressInfo;
 
             return (targetProperties, targetAddressInfo);
         }
 
-        private void LocalInterfaceCacheHandler(object sender, EventArgs e)
+        public void Dispose()
         {
-            Logger.Info?.Print(LogClass.ServiceNifm, $"NetworkAddress changed, invalidating cached data.");
-
-            _targetPropertiesCache  = null;
-            _targetAddressInfoCache = null;
-        }
-
-        protected override void Dispose(bool isDisposing)
-        {
-            if (isDisposing)
-            {
-                NetworkChange.NetworkAddressChanged -= LocalInterfaceCacheHandler;
-
-                GeneralServiceManager.Remove(_generalServiceDetail.ClientId);
-            }
+            GeneralServiceManager.Remove(_generalServiceDetail.ClientId);
         }
     }
 }

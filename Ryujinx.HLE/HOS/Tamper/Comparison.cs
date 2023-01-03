@@ -1,4 +1,10 @@
-﻿namespace Ryujinx.HLE.HOS.Tamper
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Ryujinx.HLE.HOS.Tamper
 {
     /// <summary>
     /// The comparisons used by conditional operations.

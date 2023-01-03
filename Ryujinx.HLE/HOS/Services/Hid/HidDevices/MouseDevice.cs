@@ -1,36 +1,37 @@
-using Ryujinx.HLE.HOS.Services.Hid.Types.SharedMemory.Common;
-using Ryujinx.HLE.HOS.Services.Hid.Types.SharedMemory.Mouse;
-
 namespace Ryujinx.HLE.HOS.Services.Hid
 {
     public class MouseDevice : BaseDevice
     {
         public MouseDevice(Switch device, bool active) : base(device, active) { }
 
-        public void Update(int mouseX, int mouseY, uint buttons = 0, int scrollX = 0, int scrollY = 0, bool connected = false)
+        public void Update(int mouseX, int mouseY, int buttons = 0, int scrollX = 0, int scrollY = 0)
         {
-            ref RingLifo<MouseState> lifo = ref _device.Hid.SharedMemory.Mouse;
+            ref ShMemMouse mouse = ref _device.Hid.SharedMemory.Mouse;
 
-            ref MouseState previousEntry = ref lifo.GetCurrentEntryRef();
-            
-            MouseState newState = new MouseState()
-            {
-                SamplingNumber = previousEntry.SamplingNumber + 1,
-            };
+            int currentIndex = UpdateEntriesHeader(ref mouse.Header, out int previousIndex);
 
-            if (Active)
+            if (!Active)
             {
-                newState.Buttons = (MouseButton)buttons;
-                newState.X = mouseX;
-                newState.Y = mouseY;
-                newState.DeltaX = mouseX - previousEntry.DeltaX;
-                newState.DeltaY = mouseY - previousEntry.DeltaY;
-                newState.WheelDeltaX = scrollX;
-                newState.WheelDeltaY = scrollY;
-                newState.Attributes = connected ? MouseAttribute.IsConnected : MouseAttribute.None;
+                return;
             }
 
-            lifo.Write(ref newState);
+            ref MouseState currentEntry = ref mouse.Entries[currentIndex];
+            MouseState previousEntry = mouse.Entries[previousIndex];
+
+            currentEntry.SampleTimestamp = previousEntry.SampleTimestamp + 1;
+            currentEntry.SampleTimestamp2 = previousEntry.SampleTimestamp2 + 1;
+
+            currentEntry.Buttons = (ulong)buttons;
+
+            currentEntry.Position = new MousePosition
+            {
+                X = mouseX,
+                Y = mouseY,
+                VelocityX = mouseX - previousEntry.Position.X,
+                VelocityY = mouseY - previousEntry.Position.Y,
+                ScrollVelocityX = scrollX,
+                ScrollVelocityY = scrollY
+            };
         }
     }
 }

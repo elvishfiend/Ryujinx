@@ -2,7 +2,7 @@ using ARMeilleure.Common;
 
 namespace ARMeilleure.Decoders
 {
-    class OpCode32AluImm : OpCode32Alu, IOpCode32AluImm
+    class OpCode32AluImm : OpCode32Alu
     {
         public int Immediate { get; }
 

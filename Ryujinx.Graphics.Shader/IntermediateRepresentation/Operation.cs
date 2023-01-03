@@ -62,24 +62,17 @@ namespace Ryujinx.Graphics.Shader.IntermediateRepresentation
             Inst  = inst;
             Index = index;
 
-            if (dests != null)
-            {
-                // The array may be modified externally, so we store a copy.
-                _dests = (Operand[])dests.Clone();
+            // The array may be modified externally, so we store a copy.
+            _dests = (Operand[])dests.Clone();
 
-                for (int dstIndex = 0; dstIndex < dests.Length; dstIndex++)
+            for (int dstIndex = 0; dstIndex < dests.Length; dstIndex++)
+            {
+                Operand dest = dests[dstIndex];
+
+                if (dest != null && dest.Type == OperandType.LocalVariable)
                 {
-                    Operand dest = dests[dstIndex];
-
-                    if (dest != null && dest.Type == OperandType.LocalVariable)
-                    {
-                        dest.AsgOp = this;
-                    }
+                    dest.AsgOp = this;
                 }
-            }
-            else
-            {
-                _dests = Array.Empty<Operand>();
             }
         }
 
@@ -185,18 +178,6 @@ namespace Ryujinx.Graphics.Shader.IntermediateRepresentation
             }
 
             _sources[index] = source;
-        }
-
-        public void InsertSource(int index, Operand source)
-        {
-            Operand[] newSources = new Operand[_sources.Length + 1];
-
-            Array.Copy(_sources, 0, newSources, 0, index);
-            Array.Copy(_sources, index, newSources, index + 1, _sources.Length - index);
-
-            newSources[index] = source;
-
-            _sources = newSources;
         }
 
         protected void RemoveSource(int index)

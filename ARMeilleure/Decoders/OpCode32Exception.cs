@@ -1,6 +1,6 @@
 ﻿namespace ARMeilleure.Decoders
 {
-    class OpCode32Exception : OpCode32, IOpCode32Exception
+    class OpCode32Exception : OpCode32
     {
         public int Id { get; }
 

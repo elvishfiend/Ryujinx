@@ -1,5 +1,4 @@
-﻿using Ryujinx.Cpu;
-using Ryujinx.HLE.HOS.Kernel.Threading;
+﻿using Ryujinx.HLE.HOS.Kernel.Threading;
 using System;
 
 namespace Ryujinx.HLE.HOS.Services.Time.Clock
@@ -27,15 +26,15 @@ namespace Ryujinx.HLE.HOS.Services.Time.Clock
             throw new NotImplementedException();
         }
 
-        public override ResultCode GetClockContext(ITickSource tickSource, out SystemClockContext context)
+        public override ResultCode GetClockContext(KThread thread, out SystemClockContext context)
         {
-            ResultCode result = ApplyAutomaticCorrection(tickSource, false);
+            ResultCode result = ApplyAutomaticCorrection(thread, false);
 
             context = new SystemClockContext();
 
             if (result == ResultCode.Success)
             {
-                return _localSystemClockCore.GetClockContext(tickSource, out context);
+                return _localSystemClockCore.GetClockContext(thread, out context);
             }
 
             return result;
@@ -46,13 +45,13 @@ namespace Ryujinx.HLE.HOS.Services.Time.Clock
             return ResultCode.NotImplemented;
         }
 
-        private ResultCode ApplyAutomaticCorrection(ITickSource tickSource, bool autoCorrectionEnabled)
+        private ResultCode ApplyAutomaticCorrection(KThread thread, bool autoCorrectionEnabled)
         {
             ResultCode result = ResultCode.Success;
 
-            if (_autoCorrectionEnabled != autoCorrectionEnabled && _networkSystemClockCore.IsClockSetup(tickSource))
+            if (_autoCorrectionEnabled != autoCorrectionEnabled && _networkSystemClockCore.IsClockSetup(thread))
             {
-                result = _networkSystemClockCore.GetClockContext(tickSource, out SystemClockContext context);
+                result = _networkSystemClockCore.GetClockContext(thread, out SystemClockContext context);
 
                 if (result == ResultCode.Success)
                 {
@@ -68,9 +67,9 @@ namespace Ryujinx.HLE.HOS.Services.Time.Clock
             _autoCorrectionEvent = new KEvent(system.KernelContext);
         }
 
-        public ResultCode SetAutomaticCorrectionEnabled(ITickSource tickSource, bool autoCorrectionEnabled)
+        public ResultCode SetAutomaticCorrectionEnabled(KThread thread, bool autoCorrectionEnabled)
         {
-            ResultCode result = ApplyAutomaticCorrection(tickSource, autoCorrectionEnabled);
+            ResultCode result = ApplyAutomaticCorrection(thread, autoCorrectionEnabled);
 
             if (result == ResultCode.Success)
             {

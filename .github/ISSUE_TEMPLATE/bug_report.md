@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Something doesn't work correctly in Ryujinx. Game-specific issues should be posted at https://github.com/Ryujinx/Ryujinx-Games-List instead, unless it is a provable regression.
+about: Something doesn't work correctly in Ryujinx.
 #assignees:
 ---
 
@@ -34,7 +34,7 @@ about: Something doesn't work correctly in Ryujinx. Game-specific issues should 
   - OS: *(e.g. Windows 10)*
   - CPU: *(e.g. i7-6700)*
   - GPU: *(e.g. NVIDIA RTX 2070)*
-  - RAM: *(e.g. 16GiB)*
+  - RAM: *(e.g. 16GB)*
 - Applied Mods : [ Yes (Which ones) / No ]
 
 ### Additional context?

@@ -2,7 +2,7 @@
 
 namespace Ryujinx.HLE.HOS.Services.Time.Clock
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     struct SystemClockContext
     {
         public long                 Offset;

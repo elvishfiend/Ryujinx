@@ -1,36 +1,34 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Ryujinx.Graphics.Device
 {
-    public class DeviceState<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TState> : IDeviceState where TState : unmanaged
+    public class DeviceState<TState> : IDeviceState where TState : unmanaged
     {
         private const int RegisterSize = sizeof(int);
 
         public TState State;
 
-        private uint Size => (uint)(Unsafe.SizeOf<TState>() + RegisterSize - 1) / RegisterSize;
+        private readonly BitArray _readableRegisters;
+        private readonly BitArray _writableRegisters;
 
-        private readonly Func<int>[] _readCallbacks;
-        private readonly Action<int>[] _writeCallbacks;
+        private readonly Dictionary<int, Func<int>> _readCallbacks;
+        private readonly Dictionary<int, Action<int>> _writeCallbacks;
 
-        private readonly Dictionary<uint, string> _fieldNamesForDebug;
-        private readonly Action<string> _debugLogCallback;
-
-        public DeviceState(IReadOnlyDictionary<string, RwCallback> callbacks = null, Action<string> debugLogCallback = null)
+        public DeviceState(IReadOnlyDictionary<string, RwCallback> callbacks = null)
         {
-            _readCallbacks = new Func<int>[Size];
-            _writeCallbacks = new Action<int>[Size];
+            int size = (Unsafe.SizeOf<TState>() + RegisterSize - 1) / RegisterSize;
 
-            if (debugLogCallback != null)
-            {
-                _fieldNamesForDebug = new Dictionary<uint, string>();
-                _debugLogCallback = debugLogCallback;
-            }
+            _readableRegisters = new BitArray(size);
+            _writableRegisters = new BitArray(size);
+
+            _readCallbacks = new Dictionary<int, Func<int>>();
+            _writeCallbacks = new Dictionary<int, Action<int>>();
 
             var fields = typeof(TState).GetFields();
             int offset = 0;
@@ -38,30 +36,27 @@ namespace Ryujinx.Graphics.Device
             for (int fieldIndex = 0; fieldIndex < fields.Length; fieldIndex++)
             {
                 var field = fields[fieldIndex];
+                var regAttr = field.GetCustomAttributes<RegisterAttribute>(false).FirstOrDefault();
 
                 int sizeOfField = SizeCalculator.SizeOf(field.FieldType);
 
                 for (int i = 0; i < ((sizeOfField + 3) & ~3); i += 4)
                 {
-                    int index = (offset + i) / RegisterSize;
-
-                    if (callbacks != null && callbacks.TryGetValue(field.Name, out var cb))
-                    {
-                        if (cb.Read != null)
-                        {
-                            _readCallbacks[index] = cb.Read;
-                        }
-
-                        if (cb.Write != null)
-                        {
-                            _writeCallbacks[index] = cb.Write;
-                        }
-                    }
+                    _readableRegisters[(offset + i) / RegisterSize] = regAttr?.AccessControl.HasFlag(AccessControl.ReadOnly)  ?? true;
+                    _writableRegisters[(offset + i) / RegisterSize] = regAttr?.AccessControl.HasFlag(AccessControl.WriteOnly) ?? true;
                 }
 
-                if (debugLogCallback != null)
+                if (callbacks != null && callbacks.TryGetValue(field.Name, out var cb))
                 {
-                    _fieldNamesForDebug.Add((uint)offset, field.Name);
+                    if (cb.Read != null)
+                    {
+                        _readCallbacks.Add(offset, cb.Read);
+                    }
+
+                    if (cb.Write != null)
+                    {
+                        _writeCallbacks.Add(offset, cb.Write);
+                    }
                 }
 
                 offset += sizeOfField;
@@ -70,71 +65,43 @@ namespace Ryujinx.Graphics.Device
             Debug.Assert(offset == Unsafe.SizeOf<TState>());
         }
 
-        public int Read(int offset)
+        public virtual int Read(int offset)
         {
-            uint index = (uint)offset / RegisterSize;
-
-            if (index < Size)
+            if (Check(offset) && _readableRegisters[offset / RegisterSize])
             {
-                uint alignedOffset = index * RegisterSize;
+                int alignedOffset = Align(offset);
 
-                var readCallback = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_readCallbacks), (IntPtr)index);
-                if (readCallback != null)
+                if (_readCallbacks.TryGetValue(alignedOffset, out Func<int> read))
                 {
-                    return readCallback();
+                    return read();
                 }
                 else
                 {
-                    return GetRefUnchecked<int>(alignedOffset);
+                    return GetRef<int>(alignedOffset);
                 }
             }
 
             return 0;
         }
 
-        public void Write(int offset, int data)
+        public virtual void Write(int offset, int data)
         {
-            uint index = (uint)offset / RegisterSize;
-
-            if (index < Size)
+            if (Check(offset) && _writableRegisters[offset / RegisterSize])
             {
-                uint alignedOffset = index * RegisterSize;
-                DebugWrite(alignedOffset, data);
+                int alignedOffset = Align(offset);
 
-                GetRefIntAlignedUncheck(index) = data;
+                GetRef<int>(alignedOffset) = data;
 
-                Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_writeCallbacks), (IntPtr)index)?.Invoke(data);
+                if (_writeCallbacks.TryGetValue(alignedOffset, out Action<int> write))
+                {
+                    write(data);
+                }
             }
         }
 
-        public void WriteWithRedundancyCheck(int offset, int data, out bool changed)
+        private bool Check(int offset)
         {
-            uint index = (uint)offset / RegisterSize;
-
-            if (index < Size)
-            {
-                uint alignedOffset = index * RegisterSize;
-                DebugWrite(alignedOffset, data);
-
-                ref var storage = ref GetRefIntAlignedUncheck(index);
-                changed = storage != data;
-                storage = data;
-
-                Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_writeCallbacks), (IntPtr)index)?.Invoke(data);
-            }
-            else
-            {
-                changed = false;
-            }
-        }
-
-        [Conditional("DEBUG")]
-        private void DebugWrite(uint alignedOffset, int data)
-        {
-            if (_fieldNamesForDebug != null && _fieldNamesForDebug.TryGetValue(alignedOffset, out string fieldName))
-            {
-                _debugLogCallback($"{typeof(TState).Name}.{fieldName} = 0x{data:X}");
-            }
+            return (uint)Align(offset) < Unsafe.SizeOf<TState>();
         }
 
         public ref T GetRef<T>(int offset) where T : unmanaged
@@ -144,19 +111,12 @@ namespace Ryujinx.Graphics.Device
                 throw new ArgumentOutOfRangeException(nameof(offset));
             }
 
-            return ref GetRefUnchecked<T>((uint)offset);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ref T GetRefUnchecked<T>(uint offset) where T : unmanaged
-        {
             return ref Unsafe.As<TState, T>(ref Unsafe.AddByteOffset(ref State, (IntPtr)offset));
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ref int GetRefIntAlignedUncheck(ulong index)
+        private static int Align(int offset)
         {
-            return ref Unsafe.Add(ref Unsafe.As<TState, int>(ref State), (IntPtr)index);
+            return offset & ~(RegisterSize - 1);
         }
     }
 }

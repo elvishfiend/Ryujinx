@@ -13,28 +13,16 @@ namespace Ryujinx.Graphics.Shader
     {
         public static string ToGlslString(this InputTopology topology)
         {
-            return topology switch
+            switch (topology)
             {
-                InputTopology.Points => "points",
-                InputTopology.Lines => "lines",
-                InputTopology.LinesAdjacency => "lines_adjacency",
-                InputTopology.Triangles => "triangles",
-                InputTopology.TrianglesAdjacency => "triangles_adjacency",
-                _ => "points"
-            };
-        }
+                case InputTopology.Points:             return "points";
+                case InputTopology.Lines:              return "lines";
+                case InputTopology.LinesAdjacency:     return "lines_adjacency";
+                case InputTopology.Triangles:          return "triangles";
+                case InputTopology.TrianglesAdjacency: return "triangles_adjacency";
+            }
 
-        public static int ToInputVertices(this InputTopology topology)
-        {
-            return topology switch
-            {
-                InputTopology.Points => 1,
-                InputTopology.Lines or
-                InputTopology.LinesAdjacency => 2,
-                InputTopology.Triangles or
-                InputTopology.TrianglesAdjacency => 3,
-                _ => 1
-            };
+            return "points";
         }
     }
 }

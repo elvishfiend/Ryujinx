@@ -9,7 +9,7 @@ namespace Ryujinx.Graphics.OpenGL.Queries
 
         public Counters()
         {
-            int count = Enum.GetNames<CounterType>().Length;
+            int count = Enum.GetNames(typeof(CounterType)).Length;
 
             _counterQueues = new CounterQueue[count];
         }
@@ -23,9 +23,9 @@ namespace Ryujinx.Graphics.OpenGL.Queries
             }
         }
 
-        public CounterQueueEvent QueueReport(CounterType type, EventHandler<ulong> resultHandler, ulong lastDrawIndex, bool hostReserved)
+        public CounterQueueEvent QueueReport(CounterType type, EventHandler<ulong> resultHandler, ulong lastDrawIndex)
         {
-            return _counterQueues[(int)type].QueueReport(resultHandler, lastDrawIndex, hostReserved);
+            return _counterQueues[(int)type].QueueReport(resultHandler, lastDrawIndex);
         }
 
         public void QueueReset(CounterType type)

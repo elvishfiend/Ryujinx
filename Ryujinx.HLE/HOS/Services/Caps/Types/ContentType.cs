@@ -4,7 +4,6 @@
     {
         Screenshot,
         Movie,
-        ExtraMovie,
-        Unknown
+        ExtraMovie
     }
 }

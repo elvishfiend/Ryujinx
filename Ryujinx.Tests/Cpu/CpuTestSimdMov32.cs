@@ -2,6 +2,7 @@
 
 using ARMeilleure.State;
 using NUnit.Framework;
+using System;
 
 namespace Ryujinx.Tests.Cpu
 {

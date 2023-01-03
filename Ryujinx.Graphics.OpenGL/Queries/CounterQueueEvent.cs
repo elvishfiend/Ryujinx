@@ -21,11 +21,7 @@ namespace Ryujinx.Graphics.OpenGL.Queries
         private CounterQueue _queue;
         private BufferedQuery _counter;
 
-        private bool _hostAccessReserved = false;
-        private int _refCount = 1; // Starts with a reference from the counter queue.
-
         private object _lock = new object();
-        private ulong _result = ulong.MaxValue;
 
         public CounterQueueEvent(CounterQueue queue, QueryTarget type, ulong drawIndex)
         {
@@ -80,8 +76,6 @@ namespace Ryujinx.Graphics.OpenGL.Queries
 
                 result += (ulong)queryResult;
 
-                _result = result;
-
                 OnResult?.Invoke(this, result);
 
                 Dispose(); // Return the our resources to the pool.
@@ -101,60 +95,10 @@ namespace Ryujinx.Graphics.OpenGL.Queries
             _queue.FlushTo(this);
         }
 
-        public void DecrementRefCount()
-        {
-            if (Interlocked.Decrement(ref _refCount) == 0)
-            {
-                DisposeInternal();
-            }
-        }
-
-        public bool ReserveForHostAccess()
-        {
-            if (_hostAccessReserved)
-            {
-                return true;
-            }
-
-            if (IsValueAvailable())
-            {
-                return false;
-            }
-
-            if (Interlocked.Increment(ref _refCount) == 1)
-            {
-                Interlocked.Decrement(ref _refCount);
-
-                return false;
-            }
-
-            _hostAccessReserved = true;
-
-            return true;
-        }
-
-        public void ReleaseHostAccess()
-        {
-            _hostAccessReserved = false;
-
-            DecrementRefCount();
-        }
-
-        private void DisposeInternal()
-        {
-            _queue.ReturnQueryObject(_counter);
-        }
-
-        private bool IsValueAvailable()
-        {
-            return _result != ulong.MaxValue || _counter.TryGetResult(out _);
-        }
-
         public void Dispose()
         {
             Disposed = true;
-
-            DecrementRefCount();
+            _queue.ReturnQueryObject(_counter);
         }
     }
 }

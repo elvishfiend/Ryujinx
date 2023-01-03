@@ -6,7 +6,7 @@ namespace ARMeilleure.Translation.Cache
 {
     class CacheMemoryAllocator
     {
-        private readonly struct MemoryBlock : IComparable<MemoryBlock>
+        private struct MemoryBlock : IComparable<MemoryBlock>
         {
             public int Offset { get; }
             public int Size { get; }

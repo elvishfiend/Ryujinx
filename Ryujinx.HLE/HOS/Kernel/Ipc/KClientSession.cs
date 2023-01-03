@@ -1,6 +1,8 @@
 using Ryujinx.HLE.HOS.Kernel.Common;
 using Ryujinx.HLE.HOS.Kernel.Process;
 using Ryujinx.HLE.HOS.Kernel.Threading;
+using Ryujinx.HLE.HOS.Services;
+using System;
 
 namespace Ryujinx.HLE.HOS.Kernel.Ipc
 {

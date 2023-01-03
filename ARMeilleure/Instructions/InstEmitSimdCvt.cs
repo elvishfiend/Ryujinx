@@ -8,7 +8,7 @@ using System.Reflection;
 
 using static ARMeilleure.Instructions.InstEmitHelper;
 using static ARMeilleure.Instructions.InstEmitSimdHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -76,9 +76,7 @@ namespace ARMeilleure.Instructions
                 {
                     Operand ne = context.VectorExtract(OperandType.FP32, GetVec(op.Rn), 0);
 
-                    context.StoreToContext();
                     Operand res = context.Call(typeof(SoftFloat32_16).GetMethod(nameof(SoftFloat32_16.FPConvert)), ne);
-                    context.LoadFromContext();
 
                     res = context.ZeroExtend16(OperandType.I64, res);
 
@@ -100,61 +98,18 @@ namespace ARMeilleure.Instructions
                 {
                     Operand ne = EmitVectorExtractZx(context, op.Rn, 0, 1);
 
-                    context.StoreToContext();
                     Operand res = context.Call(typeof(SoftFloat16_32).GetMethod(nameof(SoftFloat16_32.FPConvert)), ne);
-                    context.LoadFromContext();
 
                     context.Copy(GetVec(op.Rd), context.VectorInsert(context.VectorZero(), res, 0));
                 }
             }
             else if (op.Size == 1 && op.Opc == 3) // Double -> Half.
             {
-                if (Optimizations.UseF16c)
-                {
-                    Debug.Assert(!Optimizations.ForceLegacySse);
-
-                    Operand n = GetVec(op.Rn);
-
-                    Operand res = context.AddIntrinsic(Intrinsic.X86Cvtsd2ss, context.VectorZero(), n);
-                            res = context.AddIntrinsic(Intrinsic.X86Vcvtps2ph, res, Const(X86GetRoundControl(FPRoundingMode.ToNearest)));
-
-                    context.Copy(GetVec(op.Rd), res);
-                }
-                else
-                {
-                    Operand ne = context.VectorExtract(OperandType.FP64, GetVec(op.Rn), 0);
-
-                    context.StoreToContext();
-                    Operand res = context.Call(typeof(SoftFloat64_16).GetMethod(nameof(SoftFloat64_16.FPConvert)), ne);
-                    context.LoadFromContext();
-
-                    res = context.ZeroExtend16(OperandType.I64, res);
-
-                    context.Copy(GetVec(op.Rd), EmitVectorInsert(context, context.VectorZero(), res, 0, 1));
-                }
+                throw new NotImplementedException("Double-precision to half-precision.");
             }
-            else if (op.Size == 3 && op.Opc == 1) // Half -> Double.
+            else if (op.Size == 3 && op.Opc == 1) // Double -> Half.
             {
-                if (Optimizations.UseF16c)
-                {
-                    Operand n = GetVec(op.Rn);
-
-                    Operand res = context.AddIntrinsic(Intrinsic.X86Vcvtph2ps, GetVec(op.Rn));
-                            res = context.AddIntrinsic(Intrinsic.X86Cvtss2sd, context.VectorZero(), res);
-                            res = context.VectorZeroUpper64(res);
-
-                    context.Copy(GetVec(op.Rd), res);
-                }
-                else
-                {
-                    Operand ne = EmitVectorExtractZx(context, op.Rn, 0, 1);
-
-                    context.StoreToContext();
-                    Operand res = context.Call(typeof(SoftFloat16_64).GetMethod(nameof(SoftFloat16_64.FPConvert)), ne);
-                    context.LoadFromContext();
-
-                    context.Copy(GetVec(op.Rd), context.VectorInsert(context.VectorZero(), res, 0));
-                }
+                throw new NotImplementedException("Half-precision to double-precision.");
             }
             else // Invalid encoding.
             {
@@ -164,74 +119,32 @@ namespace ARMeilleure.Instructions
 
         public static void Fcvtas_Gp(ArmEmitterContext context)
         {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41Fcvts_Gp(context, FPRoundingMode.ToNearestAway, isFixed: false);
-            }
-            else
-            {
-                EmitFcvt_s_Gp(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1));
-            }
+            EmitFcvt_s_Gp(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1));
         }
 
         public static void Fcvtas_S(ArmEmitterContext context)
         {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41FcvtsOpF(context, FPRoundingMode.ToNearestAway, scalar: true);
-            }
-            else
-            {
-                EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: true, scalar: true);
-            }
+            EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: true, scalar: true);
         }
 
         public static void Fcvtas_V(ArmEmitterContext context)
         {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41FcvtsOpF(context, FPRoundingMode.ToNearestAway, scalar: false);
-            }
-            else
-            {
-                EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: true, scalar: false);
-            }
+            EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: true, scalar: false);
         }
 
         public static void Fcvtau_Gp(ArmEmitterContext context)
         {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41Fcvtu_Gp(context, FPRoundingMode.ToNearestAway, isFixed: false);
-            }
-            else
-            {
-                EmitFcvt_u_Gp(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1));
-            }
+            EmitFcvt_u_Gp(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1));
         }
 
         public static void Fcvtau_S(ArmEmitterContext context)
         {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41FcvtuOpF(context, FPRoundingMode.ToNearestAway, scalar: true);
-            }
-            else
-            {
-                EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: false, scalar: true);
-            }
+            EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: false, scalar: true);
         }
 
         public static void Fcvtau_V(ArmEmitterContext context)
         {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41FcvtuOpF(context, FPRoundingMode.ToNearestAway, scalar: false);
-            }
-            else
-            {
-                EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: false, scalar: false);
-            }
+            EmitFcvt(context, (op1) => EmitRoundMathCall(context, MidpointRounding.AwayFromZero, op1), signed: false, scalar: false);
         }
 
         public static void Fcvtl_V(ArmEmitterContext context)
@@ -274,9 +187,7 @@ namespace ARMeilleure.Instructions
                     {
                         Operand ne = EmitVectorExtractZx(context, op.Rn, part + index, 1);
 
-                        context.StoreToContext();
                         Operand e = context.Call(typeof(SoftFloat16_32).GetMethod(nameof(SoftFloat16_32.FPConvert)), ne);
-                        context.LoadFromContext();
 
                         res = context.VectorInsert(res, e, index);
                     }
@@ -303,18 +214,6 @@ namespace ARMeilleure.Instructions
             else
             {
                 EmitFcvt_s_Gp(context, (op1) => EmitUnaryMathCall(context, nameof(Math.Floor), op1));
-            }
-        }
-
-        public static void Fcvtms_V(ArmEmitterContext context)
-        {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41FcvtsOpF(context, FPRoundingMode.TowardsMinusInfinity, scalar: false);
-            }
-            else
-            {
-                EmitFcvt(context, (op1) => EmitUnaryMathCall(context, nameof(Math.Floor), op1), signed: true, scalar: false);
             }
         }
 
@@ -381,13 +280,13 @@ namespace ARMeilleure.Instructions
 
                 for (int index = 0; index < elems; index++)
                 {
-                    Operand ne = context.VectorExtract(type, GetVec(op.Rn), index);
+                    Operand ne = context.VectorExtract(type, GetVec(op.Rn), 0);
 
                     if (sizeF == 0)
                     {
-                        context.StoreToContext();
                         Operand e = context.Call(typeof(SoftFloat32_16).GetMethod(nameof(SoftFloat32_16.FPConvert)), ne);
-                        context.LoadFromContext();
+
+                        e = context.ZeroExtend16(OperandType.I64, e);
 
                         res = EmitVectorInsert(context, res, e, part + index, 1);
                     }
@@ -400,18 +299,6 @@ namespace ARMeilleure.Instructions
                 }
 
                 context.Copy(d, res);
-            }
-        }
-
-        public static void Fcvtns_Gp(ArmEmitterContext context)
-        {
-            if (Optimizations.UseSse41)
-            {
-                EmitSse41Fcvts_Gp(context, FPRoundingMode.ToNearest, isFixed: false);
-            }
-            else
-            {
-                EmitFcvt_s_Gp(context, (op1) => EmitRoundMathCall(context, MidpointRounding.ToEven, op1));
             }
         }
 
@@ -1263,14 +1150,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulps, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundps, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundps, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand nInt = context.AddIntrinsic(Intrinsic.X86Cvtps2dq, nRes);
 
@@ -1312,14 +1192,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulpd, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundpd, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundpd, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand nLong = EmitSse2CvtDoubleToInt64OpF(context, nRes, scalar);
 
@@ -1368,14 +1241,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulps, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundps, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundps, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand zero = context.VectorZero();
 
@@ -1430,14 +1296,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulpd, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundpd, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundpd, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand zero = context.VectorZero();
 
@@ -1492,14 +1351,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulss, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundss, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar: true);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundss, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand nIntOrLong = op.RegisterSize == RegisterSize.Int32
                     ? context.AddIntrinsicInt (Intrinsic.X86Cvtss2si, nRes)
@@ -1539,14 +1391,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulsd, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundsd, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar: true);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundsd, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand nIntOrLong = op.RegisterSize == RegisterSize.Int32
                     ? context.AddIntrinsicInt (Intrinsic.X86Cvtsd2si, nRes)
@@ -1594,14 +1439,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulss, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundss, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar: true);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundss, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand zero = context.VectorZero();
 
@@ -1656,14 +1494,7 @@ namespace ARMeilleure.Instructions
                     nRes = context.AddIntrinsic(Intrinsic.X86Mulsd, nRes, fpScaledMask);
                 }
 
-                if (roundMode != FPRoundingMode.ToNearestAway)
-                {
-                    nRes = context.AddIntrinsic(Intrinsic.X86Roundsd, nRes, Const(X86GetRoundControl(roundMode)));
-                }
-                else
-                {
-                    nRes = EmitSse41RoundToNearestWithTiesToAwayOpF(context, nRes, scalar: true);
-                }
+                nRes = context.AddIntrinsic(Intrinsic.X86Roundsd, nRes, Const(X86GetRoundControl(roundMode)));
 
                 Operand zero = context.VectorZero();
 

@@ -1,10 +1,11 @@
-﻿using Ryujinx.Cpu;
+﻿using System;
+using System.IO;
 using Ryujinx.HLE.Exceptions;
 using Ryujinx.HLE.HOS.Kernel.Memory;
+using Ryujinx.HLE.HOS.Kernel.Threading;
 using Ryujinx.HLE.HOS.Services.Time.Clock;
 using Ryujinx.HLE.HOS.Services.Time.TimeZone;
-using System;
-using System.IO;
+using Ryujinx.HLE.Utilities;
 
 namespace Ryujinx.HLE.HOS.Services.Time
 {
@@ -54,9 +55,9 @@ namespace Ryujinx.HLE.HOS.Services.Time
             EphemeralClockContextWriter = new EphemeralNetworkSystemClockContextWriter();
         }
 
-        public void Initialize(Switch device, Horizon system, KSharedMemory sharedMemory, SharedMemoryStorage timeSharedMemoryStorage, int timeSharedMemorySize)
+        public void Initialize(Switch device, Horizon system, KSharedMemory sharedMemory, ulong timeSharedMemoryAddress, int timeSharedMemorySize)
         {
-            SharedMemory.Initialize(device, sharedMemory, timeSharedMemoryStorage, timeSharedMemorySize);
+            SharedMemory.Initialize(device, sharedMemory, timeSharedMemoryAddress, timeSharedMemorySize);
 
             // Here we use system on purpose as device. System isn't initialized at this point.
             StandardUserSystemClock.CreateAutomaticCorrectionEvent(system);
@@ -67,13 +68,14 @@ namespace Ryujinx.HLE.HOS.Services.Time
             TimeZone.Initialize(this, device);
         }
 
-        public void SetupStandardSteadyClock(ITickSource tickSource, UInt128 clockSourceId, TimeSpanType setupValue, TimeSpanType internalOffset, TimeSpanType testOffset, bool isRtcResetDetected)
+
+        public void SetupStandardSteadyClock(KThread thread, UInt128 clockSourceId, TimeSpanType setupValue, TimeSpanType internalOffset, TimeSpanType testOffset, bool isRtcResetDetected)
         {
             SetupInternalStandardSteadyClock(clockSourceId, setupValue, internalOffset, testOffset, isRtcResetDetected);
 
-            TimeSpanType currentTimePoint = StandardSteadyClock.GetCurrentRawTimePoint(tickSource);
+            TimeSpanType currentTimePoint = StandardSteadyClock.GetCurrentRawTimePoint(thread);
 
-            SharedMemory.SetupStandardSteadyClock(tickSource, clockSourceId, currentTimePoint);
+            SharedMemory.SetupStandardSteadyClock(thread, clockSourceId, currentTimePoint);
 
             // TODO: propagate IPC late binding of "time:s" and "time:p"
         }
@@ -95,18 +97,18 @@ namespace Ryujinx.HLE.HOS.Services.Time
             // TODO: propagate IPC late binding of "time:s" and "time:p"
         }
 
-        public void SetupStandardLocalSystemClock(ITickSource tickSource, SystemClockContext clockContext, long posixTime)
+        public void SetupStandardLocalSystemClock(KThread thread, SystemClockContext clockContext, long posixTime)
         {
             StandardLocalSystemClock.SetUpdateCallbackInstance(LocalClockContextWriter);
 
-            SteadyClockTimePoint currentTimePoint = StandardLocalSystemClock.GetSteadyClockCore().GetCurrentTimePoint(tickSource);
+            SteadyClockTimePoint currentTimePoint = StandardLocalSystemClock.GetSteadyClockCore().GetCurrentTimePoint(thread);
             if (currentTimePoint.ClockSourceId == clockContext.SteadyTimePoint.ClockSourceId)
             {
                 StandardLocalSystemClock.SetSystemClockContext(clockContext);
             }
             else
             {
-                if (StandardLocalSystemClock.SetCurrentTime(tickSource, posixTime) != ResultCode.Success)
+                if (StandardLocalSystemClock.SetCurrentTime(thread, posixTime) != ResultCode.Success)
                 {
                     throw new InternalServiceException("Cannot set current local time");
                 }
@@ -155,9 +157,9 @@ namespace Ryujinx.HLE.HOS.Services.Time
             // TODO: propagate IPC late binding of "time:s" and "time:p"
         }
 
-        public void SetupStandardUserSystemClock(ITickSource tickSource, bool isAutomaticCorrectionEnabled, SteadyClockTimePoint steadyClockTimePoint)
+        public void SetupStandardUserSystemClock(KThread thread, bool isAutomaticCorrectionEnabled, SteadyClockTimePoint steadyClockTimePoint)
         {
-            if (StandardUserSystemClock.SetAutomaticCorrectionEnabled(tickSource, isAutomaticCorrectionEnabled) != ResultCode.Success)
+            if (StandardUserSystemClock.SetAutomaticCorrectionEnabled(thread, isAutomaticCorrectionEnabled) != ResultCode.Success)
             {
                 throw new InternalServiceException("Cannot set automatic user time correction state");
             }
@@ -170,13 +172,13 @@ namespace Ryujinx.HLE.HOS.Services.Time
             // TODO: propagate IPC late binding of "time:s" and "time:p"
         }
 
-        public void SetStandardSteadyClockRtcOffset(ITickSource tickSource, TimeSpanType rtcOffset)
+        public void SetStandardSteadyClockRtcOffset(KThread thread, TimeSpanType rtcOffset)
         {
             StandardSteadyClock.SetSetupValue(rtcOffset);
 
-            TimeSpanType currentTimePoint = StandardSteadyClock.GetCurrentRawTimePoint(tickSource);
+            TimeSpanType currentTimePoint = StandardSteadyClock.GetCurrentRawTimePoint(thread);
 
-            SharedMemory.SetSteadyClockRawTimePoint(tickSource, currentTimePoint);
+            SharedMemory.SetSteadyClockRawTimePoint(thread, currentTimePoint);
         }
     }
 }

@@ -1,7 +1,7 @@
 using ARMeilleure.IntermediateRepresentation;
 
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
-using static ARMeilleure.IntermediateRepresentation.Operation.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
+using static ARMeilleure.IntermediateRepresentation.OperationHelper;
 
 namespace ARMeilleure.Translation
 {
@@ -11,36 +11,34 @@ namespace ARMeilleure.Translation
         {
             for (BasicBlock block = cfg.Blocks.First; block != null; block = block.ListNext)
             {
-                Operation operation = block.Operations.First;
+                Node node = block.Operations.First;
 
-                while (operation != default && operation.Instruction == Instruction.Phi)
+                while (node is PhiNode phi)
                 {
-                    Operation nextNode = operation.ListNext;
+                    Node nextNode = node.ListNext;
 
-                    Operand local = Local(operation.Destination.Type);
-
-                    PhiOperation phi = operation.AsPhi();
+                    Operand local = Local(phi.Destination.Type);
 
                     for (int index = 0; index < phi.SourcesCount; index++)
                     {
-                        BasicBlock predecessor = phi.GetBlock(cfg, index);
+                        BasicBlock predecessor = phi.GetBlock(index);
 
                         Operand source = phi.GetSource(index);
 
                         predecessor.Append(Operation(Instruction.Copy, local, source));
 
-                        phi.SetSource(index, default);
+                        phi.SetSource(index, null);
                     }
 
-                    Operation copyOp = Operation(Instruction.Copy, operation.Destination, local);
+                    Operation copyOp = Operation(Instruction.Copy, phi.Destination, local);
 
-                    block.Operations.AddBefore(operation, copyOp);
+                    block.Operations.AddBefore(node, copyOp);
 
-                    operation.Destination = default;
+                    phi.Destination = null;
 
-                    block.Operations.Remove(operation);
+                    block.Operations.Remove(node);
 
-                    operation = nextNode;
+                    node = nextNode;
                 }
             }
         }

@@ -8,7 +8,6 @@ namespace ARMeilleure.Decoders
         {
             Cond = Condition.Al;
 
-            IsThumb = true;
             OpCodeSizeInBytes = 2;
         }
     }

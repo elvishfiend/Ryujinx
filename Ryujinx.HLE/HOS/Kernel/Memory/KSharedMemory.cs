@@ -8,32 +8,34 @@ namespace Ryujinx.HLE.HOS.Kernel.Memory
     {
         private readonly KPageList _pageList;
 
-        private readonly ulong _ownerPid;
+        private readonly long _ownerPid;
 
         private readonly KMemoryPermission _ownerPermission;
         private readonly KMemoryPermission _userPermission;
 
         public KSharedMemory(
-            KernelContext context,
-            SharedMemoryStorage storage,
-            ulong ownerPid,
+            KernelContext    context,
+            KPageList        pageList,
+            long             ownerPid,
             KMemoryPermission ownerPermission,
             KMemoryPermission userPermission) : base(context)
         {
-            _pageList = storage.GetPageList();
-            _ownerPid = ownerPid;
+            _pageList        = pageList;
+            _ownerPid        = ownerPid;
             _ownerPermission = ownerPermission;
-            _userPermission = userPermission;
+            _userPermission  = userPermission;
         }
 
         public KernelResult MapIntoProcess(
-            KPageTableBase memoryManager,
-            ulong address,
-            ulong size,
-            KProcess process,
+            KMemoryManager   memoryManager,
+            ulong            address,
+            ulong            size,
+            KProcess         process,
             KMemoryPermission permission)
         {
-            if (_pageList.GetPagesCount() != BitUtils.DivRoundUp<ulong>(size, KPageTableBase.PageSize))
+            ulong pagesCountRounded = BitUtils.DivRoundUp(size, KMemoryManager.PageSize);
+
+            if (_pageList.GetPagesCount() != pagesCountRounded)
             {
                 return KernelResult.InvalidSize;
             }
@@ -50,9 +52,15 @@ namespace Ryujinx.HLE.HOS.Kernel.Memory
             return memoryManager.MapPages(address, _pageList, MemoryState.SharedMemory, permission);
         }
 
-        public KernelResult UnmapFromProcess(KPageTableBase memoryManager, ulong address, ulong size, KProcess process)
+        public KernelResult UnmapFromProcess(
+            KMemoryManager   memoryManager,
+            ulong            address,
+            ulong            size,
+            KProcess         process)
         {
-            if (_pageList.GetPagesCount() != BitUtils.DivRoundUp<ulong>(size, KPageTableBase.PageSize))
+            ulong pagesCountRounded = BitUtils.DivRoundUp(size, KMemoryManager.PageSize);
+
+            if (_pageList.GetPagesCount() != pagesCountRounded)
             {
                 return KernelResult.InvalidSize;
             }

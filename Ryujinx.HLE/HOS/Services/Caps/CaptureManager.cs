@@ -1,6 +1,7 @@
 ﻿using Ryujinx.Common.Memory;
 using Ryujinx.HLE.HOS.Services.Caps.Types;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.PixelFormats;
 using System;
 using System.IO;
@@ -18,6 +19,11 @@ namespace Ryujinx.HLE.HOS.Services.Caps
         public CaptureManager(Switch device)
         {
             _sdCardPath = device.FileSystem.GetSdCardPath();
+
+            SixLabors.ImageSharp.Configuration.Default.ImageFormatsManager.SetEncoder(JpegFormat.Instance, new JpegEncoder()
+            {
+                Quality = 100
+            });
         }
 
         public ResultCode SetShimLibraryVersion(ServiceCtx context)
@@ -100,23 +106,26 @@ namespace Ryujinx.HLE.HOS.Services.Caps
                     Unknown0x1f       = 1
                 };
 
-                // NOTE: The hex hash is a HMAC-SHA256 (first 32 bytes) using a hardcoded secret key over the titleId, we can simulate it by hashing the titleId instead.
-                string hash       = BitConverter.ToString(SHA256.HashData(BitConverter.GetBytes(titleId))).Replace("-", "").Remove(0x20);
-                string folderPath = Path.Combine(_sdCardPath, "Nintendo", "Album", currentDateTime.Year.ToString("00"), currentDateTime.Month.ToString("00"), currentDateTime.Day.ToString("00"));
-                string filePath   = GenerateFilePath(folderPath, applicationAlbumEntry, currentDateTime, hash);
-
-                // TODO: Handle that using the FS service implementation and return the right error code instead of throwing exceptions.
-                Directory.CreateDirectory(folderPath);
-
-                while (File.Exists(filePath))
+                using (SHA256 sha256Hash = SHA256.Create())
                 {
-                    applicationAlbumEntry.AlbumFileDateTime.UniqueId++;
+                    // NOTE: The hex hash is a HMAC-SHA256 (first 32 bytes) using a hardcoded secret key over the titleId, we can simulate it by hashing the titleId instead.
+                    string hash       = BitConverter.ToString(sha256Hash.ComputeHash(BitConverter.GetBytes(titleId))).Replace("-", "").Remove(0x20);
+                    string folderPath = Path.Combine(_sdCardPath, "Nintendo", "Album", currentDateTime.Year.ToString("00"), currentDateTime.Month.ToString("00"), currentDateTime.Day.ToString("00"));
+                    string filePath   = GenerateFilePath(folderPath, applicationAlbumEntry, currentDateTime, hash);
 
-                    filePath = GenerateFilePath(folderPath, applicationAlbumEntry, currentDateTime, hash);
+                    // TODO: Handle that using the FS service implementation and return the right error code instead of throwing exceptions.
+                    Directory.CreateDirectory(folderPath);
+
+                    while (File.Exists(filePath))
+                    {
+                        applicationAlbumEntry.AlbumFileDateTime.UniqueId++;
+
+                        filePath = GenerateFilePath(folderPath, applicationAlbumEntry, currentDateTime, hash);
+                    }
+                
+                    // NOTE: The saved JPEG file doesn't have the limitation in the extra EXIF data.
+                    Image.LoadPixelData<Rgba32>(screenshotData, 1280, 720).SaveAsJpegAsync(filePath);
                 }
-
-                // NOTE: The saved JPEG file doesn't have the limitation in the extra EXIF data.
-                Image.LoadPixelData<Rgba32>(screenshotData, 1280, 720).SaveAsJpegAsync(filePath);
 
                 return ResultCode.Success;
             }

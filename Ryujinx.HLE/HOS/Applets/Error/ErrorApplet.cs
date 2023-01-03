@@ -2,10 +2,9 @@
 using LibHac.Fs;
 using LibHac.Fs.Fsa;
 using LibHac.FsSystem;
-using LibHac.Ncm;
-using LibHac.Tools.FsSystem;
-using LibHac.Tools.FsSystem.NcaUtils;
+using LibHac.FsSystem.NcaUtils;
 using Ryujinx.Common.Logging;
+using Ryujinx.HLE.FileSystem;
 using Ryujinx.HLE.HOS.Services.Am.AppletAE;
 using Ryujinx.HLE.HOS.SystemState;
 using System;
@@ -18,7 +17,7 @@ using System.Text.RegularExpressions;
 
 namespace Ryujinx.HLE.HOS.Applets.Error
 {
-    internal partial class ErrorApplet : IApplet
+    internal class ErrorApplet : IApplet
     {
         private const long ErrorMessageBinaryTitleId = 0x0100000000000801;
 
@@ -30,15 +29,13 @@ namespace Ryujinx.HLE.HOS.Applets.Error
 
         public event EventHandler AppletStateChanged;
 
-        [GeneratedRegex(@"[^\u0000\u0009\u000A\u000D\u0020-\uFFFF]..")]
-        private static partial Regex CleanTextRegex();
-
         public ErrorApplet(Horizon horizon)
         {
             _horizon = horizon;
         }
 
-        public ResultCode Start(AppletSession normalSession, AppletSession interactiveSession)
+        public ResultCode Start(AppletSession normalSession,
+                                AppletSession interactiveSession)
         {
             _normalSession   = normalSession;
             _commonArguments = IApplet.ReadStruct<CommonArguments>(_normalSession.Pop());
@@ -47,7 +44,7 @@ namespace Ryujinx.HLE.HOS.Applets.Error
 
             _errorStorage      = _normalSession.Pop();
             _errorCommonHeader = IApplet.ReadStruct<ErrorCommonHeader>(_errorStorage);
-            _errorStorage      = _errorStorage.Skip(Marshal.SizeOf<ErrorCommonHeader>()).ToArray();
+            _errorStorage      = _errorStorage.Skip(Marshal.SizeOf(typeof(ErrorCommonHeader))).ToArray();
 
             switch (_errorCommonHeader.Type)
             {
@@ -97,33 +94,31 @@ namespace Ryujinx.HLE.HOS.Applets.Error
                 SystemLanguage.LatinAmericanSpanish => "es-419",
                 SystemLanguage.SimplifiedChinese    => "zh-Hans",
                 SystemLanguage.TraditionalChinese   => "zh-Hant",
-                SystemLanguage.BrazilianPortuguese  => "pt-BR",
                 _                                   => "en-US"
             };
         }
 
-        private static string CleanText(string value)
+        public string CleanText(string value)
         {
-            return CleanTextRegex().Replace(value, "").Replace("\0", "");
+            return Regex.Replace(Encoding.Unicode.GetString(Encoding.UTF8.GetBytes(value)), @"[^\u0009\u000A\u000D\u0020-\u007E]", "");
         }
 
         private string GetMessageText(uint module, uint description, string key)
         {
-            string binaryTitleContentPath = _horizon.ContentManager.GetInstalledContentPath(ErrorMessageBinaryTitleId, StorageId.BuiltInSystem, NcaContentType.Data);
+            string binaryTitleContentPath = _horizon.ContentManager.GetInstalledContentPath(ErrorMessageBinaryTitleId, StorageId.NandSystem, NcaContentType.Data);
 
             using (LibHac.Fs.IStorage ncaFileStream = new LocalStorage(_horizon.Device.FileSystem.SwitchPathToSystemPath(binaryTitleContentPath), FileAccess.Read, FileMode.Open))
             {
                 Nca         nca          = new Nca(_horizon.Device.FileSystem.KeySet, ncaFileStream);
                 IFileSystem romfs        = nca.OpenFileSystem(NcaSectionType.Data, _horizon.FsIntegrityCheckLevel);
                 string      languageCode = SystemLanguageToLanguageKey(_horizon.State.DesiredSystemLanguage);
-                string      filePath     = $"/{module}/{description:0000}/{languageCode}_{key}";
+                string      filePath     = "/" + Path.Combine(module.ToString(), $"{description:0000}", $"{languageCode}_{key}").Replace(@"\", "/");
 
                 if (romfs.FileExists(filePath))
                 {
-                    using var binaryFile = new UniqueRef<IFile>();
+                    romfs.OpenFile(out IFile binaryFile, filePath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
 
-                    romfs.OpenFile(ref binaryFile.Ref(), filePath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
-                    StreamReader reader = new StreamReader(binaryFile.Get.AsStream(), Encoding.Unicode);
+                    StreamReader reader = new StreamReader(binaryFile.AsStream());
 
                     return CleanText(reader.ReadToEnd());
                 }
@@ -154,7 +149,7 @@ namespace Ryujinx.HLE.HOS.Applets.Error
             }
 
             string message = GetMessageText(module, description, "DlgMsg");
-
+        
             if (message == "")
             {
                 message = "An error has occured.\n\n"
@@ -181,9 +176,11 @@ namespace Ryujinx.HLE.HOS.Applets.Error
 
             byte[] messageTextBuffer = new byte[0x800];
             byte[] detailsTextBuffer = new byte[0x800];
-
-            applicationErrorArg.MessageText.AsSpan().CopyTo(messageTextBuffer);
-            applicationErrorArg.DetailsText.AsSpan().CopyTo(detailsTextBuffer);
+            unsafe
+            {
+                Marshal.Copy((IntPtr)applicationErrorArg.MessageText, messageTextBuffer, 0, 0x800);
+                Marshal.Copy((IntPtr)applicationErrorArg.DetailsText, detailsTextBuffer, 0, 0x800);
+            }
 
             string messageText = Encoding.ASCII.GetString(messageTextBuffer.TakeWhile(b => !b.Equals(0)).ToArray());
             string detailsText = Encoding.ASCII.GetString(detailsTextBuffer.TakeWhile(b => !b.Equals(0)).ToArray());

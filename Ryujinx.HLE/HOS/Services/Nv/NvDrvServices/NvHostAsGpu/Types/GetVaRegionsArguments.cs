@@ -1,5 +1,4 @@
-﻿using Ryujinx.Common.Memory;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Services.Nv.NvDrvServices.NvHostAsGpu.Types
 {
@@ -7,17 +6,18 @@ namespace Ryujinx.HLE.HOS.Services.Nv.NvDrvServices.NvHostAsGpu.Types
     struct VaRegion
     {
         public ulong Offset;
-        public uint PageSize;
-        public uint Padding;
+        public uint  PageSize;
+        public uint  Padding;
         public ulong Pages;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     struct GetVaRegionsArguments
     {
-        public ulong Unused;
-        public uint BufferSize;
-        public uint Padding;
-        public Array2<VaRegion> Regions;
+        public ulong    Unused;
+        public uint     BufferSize;
+        public uint     Padding;
+        public VaRegion Region0;
+        public VaRegion Region1;
     }
 }

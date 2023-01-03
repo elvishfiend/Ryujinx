@@ -1,6 +1,6 @@
 ﻿namespace ARMeilleure.Decoders
 {
-    class OpCode32MemRsImm : OpCode32Mem, IOpCode32MemRsImm
+    class OpCode32MemRsImm : OpCode32Mem
     {
         public int Rm { get; }
         public ShiftType ShiftType { get; }

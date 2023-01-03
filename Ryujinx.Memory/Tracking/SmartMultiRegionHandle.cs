@@ -41,17 +41,6 @@ namespace Ryujinx.Memory.Tracking
             Dirty = true;
         }
 
-        public void ForceDirty(ulong address, ulong size)
-        {
-            foreach (var handle in _handles)
-            {
-                if (handle != null && handle.OverlapsWith(address, size))
-                {
-                    handle.ForceDirty();
-                }
-            }
-        }
-
         public void RegisterAction(RegionSignal action)
         {
             foreach (var handle in _handles)
@@ -59,17 +48,6 @@ namespace Ryujinx.Memory.Tracking
                 if (handle != null)
                 {
                     handle?.RegisterAction((address, size) => action(handle.Address, handle.Size));
-                }
-            }
-        }
-
-        public void RegisterPreciseAction(PreciseRegionSignal action)
-        {
-            foreach (var handle in _handles)
-            {
-                if (handle != null)
-                {
-                    handle?.RegisterPreciseAction((address, size, write) => action(handle.Address, handle.Size, write));
                 }
             }
         }

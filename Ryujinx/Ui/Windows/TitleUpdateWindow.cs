@@ -3,9 +3,8 @@ using LibHac.Common;
 using LibHac.Fs;
 using LibHac.Fs.Fsa;
 using LibHac.FsSystem;
+using LibHac.FsSystem.NcaUtils;
 using LibHac.Ns;
-using LibHac.Tools.FsSystem;
-using LibHac.Tools.FsSystem.NcaUtils;
 using Ryujinx.Common.Configuration;
 using Ryujinx.HLE.FileSystem;
 using Ryujinx.HLE.HOS;
@@ -40,7 +39,7 @@ namespace Ryujinx.Ui.Windows
 
         public TitleUpdateWindow(MainWindow parent, VirtualFileSystem virtualFileSystem, string titleId, string titleName) : this(new Builder("Ryujinx.Ui.Windows.TitleUpdateWindow.glade"), parent, virtualFileSystem, titleId, titleName) { }
 
-        private TitleUpdateWindow(Builder builder, MainWindow parent, VirtualFileSystem virtualFileSystem, string titleId, string titleName) : base(builder.GetRawOwnedObject("_titleUpdateWindow"))
+        private TitleUpdateWindow(Builder builder, MainWindow parent, VirtualFileSystem virtualFileSystem, string titleId, string titleName) : base(builder.GetObject("_titleUpdateWindow").Handle)
         {
             _parent = parent;
 
@@ -100,12 +99,10 @@ namespace Ryujinx.Ui.Windows
                         {
                             ApplicationControlProperty controlData = new ApplicationControlProperty();
 
-                            using var nacpFile = new UniqueRef<IFile>();
+                            controlNca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None).OpenFile(out IFile nacpFile, "/control.nacp".ToU8Span(), OpenMode.Read).ThrowIfFailure();
+                            nacpFile.Read(out _, 0, SpanHelpers.AsByteSpan(ref controlData), ReadOption.None).ThrowIfFailure();
 
-                            controlNca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None).OpenFile(ref nacpFile.Ref(), "/control.nacp".ToU8Span(), OpenMode.Read).ThrowIfFailure();
-                            nacpFile.Get.Read(out _, 0, SpanHelpers.AsByteSpan(ref controlData), ReadOption.None).ThrowIfFailure();
-
-                            RadioButton radioButton = new RadioButton($"Version {controlData.DisplayVersionString.ToString()} - {path}");
+                            RadioButton radioButton = new RadioButton($"Version {controlData.DisplayVersion.ToString()} - {path}");
                             radioButton.JoinGroup(_noUpdateRadioButton);
 
                             _availableUpdatesBox.Add(radioButton);
@@ -142,17 +139,12 @@ namespace Ryujinx.Ui.Windows
 
         private void AddButton_Clicked(object sender, EventArgs args)
         {
-            using (FileChooserNative fileChooser = new FileChooserNative("Select update files", this, FileChooserAction.Open, "Add", "Cancel"))
+            using (FileChooserDialog fileChooser = new FileChooserDialog("Select update files", this, FileChooserAction.Open, "Cancel", ResponseType.Cancel, "Add", ResponseType.Accept))
             {
                 fileChooser.SelectMultiple = true;
-
-                FileFilter filter = new FileFilter()
-                {
-                    Name = "Switch Game Updates"
-                };
-                filter.AddPattern("*.nsp");
-
-                fileChooser.AddFilter(filter);
+                fileChooser.SetPosition(WindowPosition.Center);
+                fileChooser.Filter = new FileFilter();
+                fileChooser.Filter.AddPattern("*.nsp");
 
                 if (fileChooser.Run() == (int)ResponseType.Accept)
                 {

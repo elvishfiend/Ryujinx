@@ -3,7 +3,7 @@ using System.Reflection;
 
 namespace Ryujinx.Graphics.Device
 {
-    public static class SizeCalculator
+    static class SizeCalculator
     {
         public static int SizeOf(Type type)
         {

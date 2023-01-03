@@ -1,18 +1,16 @@
 ﻿using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
+using Ryujinx.Configuration;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Gpu;
 using Ryujinx.HLE.HOS.Services.Nv.NvDrvServices.NvMap;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 
 namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
 {
-    using ResultCode = Ryujinx.HLE.HOS.Services.Vi.ResultCode;
-
     class SurfaceFlinger : IConsumerListener, IDisposable
     {
         private const int TargetFps = 60;
@@ -35,11 +33,10 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
         private long _1msTicks;
 
         private int _swapInterval;
-        private int _swapIntervalDelay;
 
         private readonly object Lock = new object();
 
-        public long RenderLayerId { get; private set; }
+        public long LastId { get; private set; }
 
         private class Layer
         {
@@ -47,21 +44,20 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
             public IGraphicBufferProducer Producer;
             public BufferItemConsumer     Consumer;
             public BufferQueueCore        Core;
-            public ulong                  Owner;
-            public LayerState             State;
+            public long                   Owner;
         }
 
         private class TextureCallbackInformation
         {
-            public Layer      Layer;
-            public BufferItem Item;
+            public Layer        Layer;
+            public BufferItem   Item;
         }
 
         public SurfaceFlinger(Switch device)
         {
             _device = device;
             _layers = new Dictionary<long, Layer>();
-            RenderLayerId = 0;
+            LastId  = 0;
 
             _composerThread = new Thread(HandleComposition)
             {
@@ -92,11 +88,28 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
             }
             else
             {
-                _ticksPerFrame = Stopwatch.Frequency / TargetFps;
+                _ticksPerFrame = Stopwatch.Frequency / (TargetFps / _swapInterval);
             }
         }
 
-        public IGraphicBufferProducer CreateLayer(out long layerId, ulong pid, LayerState initialState = LayerState.ManagedClosed)
+        public IGraphicBufferProducer OpenLayer(long pid, long layerId)
+        {
+            bool needCreate;
+
+            lock (Lock)
+            {
+                needCreate = GetLayerByIdLocked(layerId) == null;
+            }
+
+            if (needCreate)
+            {
+                CreateLayerFromId(pid, layerId);
+            }
+
+            return GetProducerByLayerId(layerId);
+        }
+
+        public IGraphicBufferProducer CreateLayer(long pid, out long layerId)
         {
             layerId = 1;
 
@@ -111,12 +124,12 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                 }
             }
 
-            CreateLayerFromId(pid, layerId, initialState);
+            CreateLayerFromId(pid, layerId);
 
             return GetProducerByLayerId(layerId);
         }
 
-        private void CreateLayerFromId(ulong pid, long layerId, LayerState initialState)
+        private void CreateLayerFromId(long pid, long layerId)
         {
             lock (Lock)
             {
@@ -135,137 +148,25 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                     Producer         = producer,
                     Consumer         = new BufferItemConsumer(_device, consumer, 0, -1, false, this),
                     Core             = core,
-                    Owner            = pid,
-                    State            = initialState
+                    Owner            = pid
                 });
+
+                LastId = layerId;
             }
         }
 
-        public ResultCode OpenLayer(ulong pid, long layerId, out IBinder producer)
-        {
-            Layer layer = GetLayerByIdLocked(layerId);
-
-            if (layer == null || layer.State != LayerState.ManagedClosed)
-            {
-                producer = null;
-
-                return ResultCode.InvalidArguments;
-            }
-
-            layer.State = LayerState.ManagedOpened;
-            producer = layer.Producer;
-
-            return ResultCode.Success;
-        }
-
-        public ResultCode CloseLayer(long layerId)
+        public bool CloseLayer(long layerId)
         {
             lock (Lock)
             {
                 Layer layer = GetLayerByIdLocked(layerId);
 
-                if (layer == null)
+                if (layer != null)
                 {
-                    Logger.Error?.Print(LogClass.SurfaceFlinger, $"Failed to close layer {layerId}");
-
-                    return ResultCode.InvalidValue;
+                    HOSBinderDriverServer.UnregisterBinderObject(layer.ProducerBinderId);
                 }
 
-                CloseLayer(layerId, layer);
-
-                return ResultCode.Success;
-            }
-        }
-
-        public ResultCode DestroyManagedLayer(long layerId)
-        {
-            lock (Lock)
-            {
-                Layer layer = GetLayerByIdLocked(layerId);
-
-                if (layer == null)
-                {
-                    Logger.Error?.Print(LogClass.SurfaceFlinger, $"Failed to destroy managed layer {layerId} (not found)");
-
-                    return ResultCode.InvalidValue;
-                }
-
-                if (layer.State != LayerState.ManagedClosed && layer.State != LayerState.ManagedOpened)
-                {
-                    Logger.Error?.Print(LogClass.SurfaceFlinger, $"Failed to destroy managed layer {layerId} (permission denied)");
-
-                    return ResultCode.PermissionDenied;
-                }
-
-                HOSBinderDriverServer.UnregisterBinderObject(layer.ProducerBinderId);
-
-                if (_layers.Remove(layerId) && layer.State == LayerState.ManagedOpened)
-                {
-                    CloseLayer(layerId, layer);
-                }
-
-                return ResultCode.Success;
-            }
-        }
-
-        public ResultCode DestroyStrayLayer(long layerId)
-        {
-            lock (Lock)
-            {
-                Layer layer = GetLayerByIdLocked(layerId);
-
-                if (layer == null)
-                {
-                    Logger.Error?.Print(LogClass.SurfaceFlinger, $"Failed to destroy stray layer {layerId} (not found)");
-
-                    return ResultCode.InvalidValue;
-                }
-
-                if (layer.State != LayerState.Stray)
-                {
-                    Logger.Error?.Print(LogClass.SurfaceFlinger, $"Failed to destroy stray layer {layerId} (permission denied)");
-
-                    return ResultCode.PermissionDenied;
-                }
-
-                HOSBinderDriverServer.UnregisterBinderObject(layer.ProducerBinderId);
-
-                if (_layers.Remove(layerId))
-                {
-                    CloseLayer(layerId, layer);
-                }
-
-                return ResultCode.Success;
-            }
-        }
-
-        private void CloseLayer(long layerId, Layer layer)
-        {
-            // If the layer was removed and the current in use, we need to change the current layer in use.
-            if (RenderLayerId == layerId)
-            {
-                // If no layer is availaible, reset to default value.
-                if (_layers.Count == 0)
-                {
-                    SetRenderLayer(0);
-                }
-                else
-                {
-                    SetRenderLayer(_layers.Last().Key);
-                }
-            }
-
-            if (layer.State == LayerState.ManagedOpened)
-            {
-                layer.State = LayerState.ManagedClosed;
-            }
-        }
-
-        public void SetRenderLayer(long layerId)
-        {
-            lock (Lock)
-            {
-                RenderLayerId = layerId;
+                return _layers.Remove(layerId);
             }
         }
 
@@ -323,13 +224,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
 
                     if (_ticks >= _ticksPerFrame)
                     {
-                        if (_swapIntervalDelay-- == 0)
-                        {
-                            Compose();
-
-                            // When a frame is presented, delay the next one by its swap interval value.
-                            _swapIntervalDelay = Math.Max(0, _swapInterval - 1);
-                        }
+                        Compose();
 
                         _device.System?.SignalVsync();
 
@@ -368,12 +263,12 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
             lock (Lock)
             {
                 // TODO: support multilayers (& multidisplay ?)
-                if (RenderLayerId == 0)
+                if (_layers.Count == 0)
                 {
                     return;
                 }
 
-                Layer layer = GetLayerByIdLocked(RenderLayerId);
+                Layer layer = GetLayerByIdLocked(LastId);
 
                 Status acquireStatus = layer.Consumer.AcquireBuffer(out BufferItem item, 0);
 
@@ -433,7 +328,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
             bool flipX = item.Transform.HasFlag(NativeWindowTransform.FlipX);
             bool flipY = item.Transform.HasFlag(NativeWindowTransform.FlipY);
 
-            AspectRatio aspectRatio = _device.Configuration.AspectRatio;
+            AspectRatio aspectRatio = ConfigurationState.Instance.Graphics.AspectRatio.Value;
             bool        isStretched = aspectRatio == AspectRatio.Stretched;
 
             ImageCrop crop = new ImageCrop(
@@ -453,8 +348,21 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                 Item  = item
             };
 
-            if (_device.Gpu.Window.EnqueueFrameThreadSafe(
-                layer.Owner,
+            if (item.Fence.FenceCount == 0)
+            {
+                _device.Gpu.Window.SignalFrameReady();
+                _device.Gpu.GPFifo.Interrupt();
+            }
+            else
+            {
+                item.Fence.RegisterCallback(_device.Gpu, () =>
+                {
+                    _device.Gpu.Window.SignalFrameReady();
+                    _device.Gpu.GPFifo.Interrupt();
+                });
+            }
+
+            _device.Gpu.Window.EnqueueFrameThreadSafe(
                 frameBufferAddress,
                 frameBufferWidth,
                 frameBufferHeight,
@@ -466,26 +374,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                 crop,
                 AcquireBuffer,
                 ReleaseBuffer,
-                textureCallbackInformation))
-            {
-                if (item.Fence.FenceCount == 0)
-                {
-                    _device.Gpu.Window.SignalFrameReady();
-                    _device.Gpu.GPFifo.Interrupt();
-                }
-                else
-                {
-                    item.Fence.RegisterCallback(_device.Gpu, (x) =>
-                    {
-                        _device.Gpu.Window.SignalFrameReady();
-                        _device.Gpu.GPFifo.Interrupt();
-                    });
-                }
-            }
-            else
-            {
-                ReleaseBuffer(textureCallbackInformation);
-            }
+                textureCallbackInformation);
         }
 
         private void ReleaseBuffer(object obj)

@@ -1,5 +1,5 @@
-﻿using LibHac.Ncm;
-using Ryujinx.Common.Logging;
+﻿using Ryujinx.Common.Logging;
+using Ryujinx.HLE.FileSystem;
 using Ryujinx.HLE.HOS.Services.Arp;
 using Ryujinx.HLE.HOS.Services.Nim.ShopServiceAccessServerInterface;
 
@@ -10,7 +10,7 @@ namespace Ryujinx.HLE.HOS.Services.Nim
     {
         public IShopServiceAccessServerInterface(ServiceCtx context) { }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // CreateServerInterface(pid, handle<unknown>, u64) -> object<nn::ec::IShopServiceAccessServer>
         public ResultCode CreateServerInterface(ServiceCtx context)
         {
@@ -21,7 +21,7 @@ namespace Ryujinx.HLE.HOS.Services.Nim
             return ResultCode.Success;
         }
 
-        [CommandHipc(4)] // 10.0.0+
+        [Command(4)] // 10.0.0+
         // IsLargeResourceAvailable(pid) -> b8
         public ResultCode IsLargeResourceAvailable(ServiceCtx context)
         {

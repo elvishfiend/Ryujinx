@@ -1,10 +1,12 @@
-﻿using Ryujinx.Common.Logging;
+﻿using Ryujinx.Common;
+using Ryujinx.Common.Logging;
 using Ryujinx.Cpu;
 using Ryujinx.HLE.HOS.Ipc;
 using Ryujinx.HLE.HOS.Kernel.Common;
 using Ryujinx.HLE.HOS.Kernel.Threading;
 using Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator.Types;
 using System;
+using System.IO;
 
 namespace Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator
 {
@@ -18,7 +20,7 @@ namespace Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator
             _event = new KEvent(context.Device.System.KernelContext);
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetEvent() -> handle<copy>
         public ResultCode GetEvent(ServiceCtx context)
         {
@@ -37,7 +39,7 @@ namespace Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator
             return ResultCode.Success;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetImpl() -> buffer<nn::bcat::detail::DeliveryCacheProgressImpl, 0x1a>
         public ResultCode GetImpl(ServiceCtx context)
         {
@@ -47,7 +49,7 @@ namespace Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator
                 Result = 0
             };
 
-            ulong dcpSize = WriteDeliveryCacheProgressImpl(context, context.Request.RecvListBuff[0], deliveryCacheProgress);
+            long dcpSize = WriteDeliveryCacheProgressImpl(context, context.Request.RecvListBuff[0], deliveryCacheProgress);
             context.Response.PtrBuff[0] = context.Response.PtrBuff[0].WithSize(dcpSize);
 
             Logger.Stub?.PrintStub(LogClass.ServiceBcat);
@@ -55,7 +57,7 @@ namespace Ryujinx.HLE.HOS.Services.Bcat.ServiceCreator
             return ResultCode.Success;
         }
 
-        private ulong WriteDeliveryCacheProgressImpl(ServiceCtx context, IpcRecvListBuffDesc ipcDesc, DeliveryCacheProgressImpl deliveryCacheProgress)
+        private long WriteDeliveryCacheProgressImpl(ServiceCtx context, IpcRecvListBuffDesc ipcDesc, DeliveryCacheProgressImpl deliveryCacheProgress)
         {
             return MemoryHelper.Write(context.Memory, ipcDesc.Position, deliveryCacheProgress);
         }

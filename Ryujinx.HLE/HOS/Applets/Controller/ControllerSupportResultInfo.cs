@@ -1,14 +1,13 @@
-using Ryujinx.Common.Memory;
 using System.Runtime.InteropServices;
 
 namespace Ryujinx.HLE.HOS.Applets
 {
 #pragma warning disable CS0649
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    struct ControllerSupportResultInfo
+    [StructLayout(LayoutKind.Sequential, Pack=1)]
+    unsafe struct ControllerSupportResultInfo
     {
         public sbyte PlayerCount;
-        private Array3<byte> _padding;
+        fixed byte _padding[3];
         public uint SelectedId;
         public uint Result;
     }

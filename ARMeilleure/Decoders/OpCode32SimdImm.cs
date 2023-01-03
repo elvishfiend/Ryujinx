@@ -6,10 +6,9 @@
         public long Immediate { get; }
         public int Elems => GetBytesCount() >> Size;
 
-        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdImm(inst, address, opCode, false);
-        public static OpCode CreateT32(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdImm(inst, address, opCode, true);
+        public new static OpCode Create(InstDescriptor inst, ulong address, int opCode) => new OpCode32SimdImm(inst, address, opCode);
 
-        public OpCode32SimdImm(InstDescriptor inst, ulong address, int opCode, bool isThumb) : base(inst, address, opCode, isThumb)
+        public OpCode32SimdImm(InstDescriptor inst, ulong address, int opCode) : base(inst, address, opCode)
         {
             Vd = (opCode >> 12) & 0xf;
             Vd |= (opCode >> 18) & 0x10;
@@ -23,7 +22,7 @@
 
             imm = ((uint)opCode >> 0) & 0xf;
             imm |= ((uint)opCode >> 12) & 0x70;
-            imm |= ((uint)opCode >> (isThumb ? 21 : 17)) & 0x80;
+            imm |= ((uint)opCode >> 17) & 0x80;
 
             (Immediate, Size) = OpCodeSimdHelper.GetSimdImmediateAndSize(cMode, op, imm);
 

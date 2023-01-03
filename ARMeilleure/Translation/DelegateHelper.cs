@@ -25,7 +25,10 @@ namespace ARMeilleure.Translation
 
         public static Delegate GetDelegate(MethodInfo info)
         {
-            ArgumentNullException.ThrowIfNull(info);
+            if (info == null)
+            {
+                throw new ArgumentNullException(nameof(info));
+            }
 
             Type[] parameters = info.GetParameters().Select(pI => pI.ParameterType).ToArray();
             Type   returnType = info.ReturnType;

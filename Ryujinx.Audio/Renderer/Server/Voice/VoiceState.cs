@@ -1,3 +1,20 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Renderer.Common;
 using Ryujinx.Audio.Renderer.Parameter;
@@ -200,9 +217,9 @@ namespace Ryujinx.Audio.Renderer.Server.Voice
             SampleFormat = SampleFormat.Invalid;
             ChannelsCount = 0;
             Pitch = 0.0f;
-            Volume = 0.0f;
+            Volume= 0.0f;
             PreviousVolume = 0.0f;
-            BiquadFilters.AsSpan().Fill(new BiquadFilterParameter());
+            BiquadFilters.ToSpan().Fill(new BiquadFilterParameter());
             WaveBuffersCount = 0;
             WaveBuffersIndex = 0;
             MixId = Constants.UnusedMixId;
@@ -260,7 +277,7 @@ namespace Ryujinx.Audio.Renderer.Server.Voice
             }
 
             return DataSourceStateAddressInfo.CpuAddress != parameter.DataSourceStateAddress ||
-                   DataSourceStateAddressInfo.Size != parameter.DataSourceStateSize ||
+                   DataSourceStateAddressInfo.Size != parameter.DataSourceStateSize           ||
                    DataSourceStateUnmapped;
         }
 
@@ -288,7 +305,7 @@ namespace Ryujinx.Audio.Renderer.Server.Voice
             ChannelsCount = parameter.ChannelCount;
             Pitch = parameter.Pitch;
             Volume = parameter.Volume;
-            parameter.BiquadFilters.AsSpan().CopyTo(BiquadFilters.AsSpan());
+            parameter.BiquadFilters.ToSpan().CopyTo(BiquadFilters.ToSpan());
             WaveBuffersCount = parameter.WaveBuffersCount;
             WaveBuffersIndex = parameter.WaveBuffersIndex;
 
@@ -308,7 +325,7 @@ namespace Ryujinx.Audio.Renderer.Server.Voice
                 SplitterId = Constants.UnusedSplitterId;
             }
 
-            parameter.ChannelResourceIds.AsSpan().CopyTo(ChannelResourceIds.AsSpan());
+            parameter.ChannelResourceIds.ToSpan().CopyTo(ChannelResourceIds.ToSpan());
 
             DecodingBehaviour behaviour = DecodingBehaviour.Default;
 
@@ -442,7 +459,7 @@ namespace Ryujinx.Audio.Renderer.Server.Voice
 
             for (int i = 0; i < Constants.VoiceWaveBufferCount; i++)
             {
-                UpdateWaveBuffer(errorInfos.AsSpan(i * 2, 2), ref WaveBuffers[i], ref parameter.WaveBuffers[i], parameter.SampleFormat, voiceUpdateState.IsWaveBufferValid[i], ref mapper, ref behaviourContext);
+                UpdateWaveBuffer(errorInfos.AsSpan().Slice(i * 2, 2), ref WaveBuffers[i], ref parameter.WaveBuffers[i], parameter.SampleFormat, voiceUpdateState.IsWaveBufferValid[i], ref mapper, ref behaviourContext);
             }
         }
 
@@ -638,7 +655,7 @@ namespace Ryujinx.Audio.Renderer.Server.Voice
 
                         voiceUpdateState.Offset = 0;
                         voiceUpdateState.PlayedSampleCount = 0;
-                        voiceUpdateState.Pitch.AsSpan().Fill(0);
+                        voiceUpdateState.Pitch.ToSpan().Fill(0);
                         voiceUpdateState.Fraction = 0;
                         voiceUpdateState.LoopContext = new Dsp.State.AdpcmLoopContext();
                     }
@@ -650,7 +667,7 @@ namespace Ryujinx.Audio.Renderer.Server.Voice
 
                 case Types.PlayState.Stopped:
                 case Types.PlayState.Paused:
-                    foreach (ref WaveBuffer wavebuffer in WaveBuffers.AsSpan())
+                    foreach (ref WaveBuffer wavebuffer in WaveBuffers.ToSpan())
                     {
                         wavebuffer.BufferAddressInfo.GetReference(true);
                         wavebuffer.ContextAddressInfo.GetReference(true);

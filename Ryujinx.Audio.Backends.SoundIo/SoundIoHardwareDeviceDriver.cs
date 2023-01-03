@@ -1,52 +1,51 @@
-﻿using Ryujinx.Audio.Backends.SoundIo.Native;
-using Ryujinx.Audio.Common;
+﻿using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Integration;
 using Ryujinx.Memory;
+using SoundIOSharp;
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 
 using static Ryujinx.Audio.Integration.IHardwareDeviceDriver;
-using static Ryujinx.Audio.Backends.SoundIo.Native.SoundIo;
 
 namespace Ryujinx.Audio.Backends.SoundIo
 {
     public class SoundIoHardwareDeviceDriver : IHardwareDeviceDriver
     {
-        private readonly SoundIoContext _audioContext;
-        private readonly SoundIoDeviceContext _audioDevice;
-        private readonly ManualResetEvent _updateRequiredEvent;
-        private readonly ManualResetEvent _pauseEvent;
-        private readonly ConcurrentDictionary<SoundIoHardwareDeviceSession, byte> _sessions;
-        private int _disposeState;
+        private object _lock = new object();
+
+        private SoundIO _audioContext;
+        private SoundIODevice _audioDevice;
+        private ManualResetEvent _updateRequiredEvent;
+        private List<SoundIoHardwareDeviceSession> _sessions;
 
         public SoundIoHardwareDeviceDriver()
         {
-            _audioContext = SoundIoContext.Create();
+            _audioContext = new SoundIO();
             _updateRequiredEvent = new ManualResetEvent(false);
-            _pauseEvent = new ManualResetEvent(true);
-            _sessions = new ConcurrentDictionary<SoundIoHardwareDeviceSession, byte>();
+            _sessions = new List<SoundIoHardwareDeviceSession>();
 
             _audioContext.Connect();
             _audioContext.FlushEvents();
 
-            _audioDevice = FindValidAudioDevice(_audioContext, true);
+            _audioDevice = FindNonRawDefaultAudioDevice(_audioContext, true);
         }
 
         public static bool IsSupported => IsSupportedInternal();
 
         private static bool IsSupportedInternal()
         {
-            SoundIoContext context = null;
-            SoundIoDeviceContext device = null;
-            SoundIoOutStreamContext stream = null;
+            SoundIO context = null;
+            SoundIODevice device = null;
+            SoundIOOutStream stream = null;
 
             bool backendDisconnected = false;
 
             try
             {
-                context = SoundIoContext.Create();
-                context.OnBackendDisconnect = err =>
+                context = new SoundIO();
+
+                context.OnBackendDisconnect = (i) =>
                 {
                     backendDisconnected = true;
                 };
@@ -64,7 +63,7 @@ namespace Ryujinx.Audio.Backends.SoundIo
                     return false;
                 }
 
-                device = FindValidAudioDevice(context);
+                device = FindNonRawDefaultAudioDevice(context);
 
                 if (device == null || backendDisconnected)
                 {
@@ -86,23 +85,30 @@ namespace Ryujinx.Audio.Backends.SoundIo
             }
             finally
             {
-                stream?.Dispose();
-                context?.Dispose();
+                if (stream != null)
+                {
+                    stream.Dispose();
+                }
+
+                if (context != null)
+                {
+                    context.Dispose();
+                }
             }
         }
 
-        private static SoundIoDeviceContext FindValidAudioDevice(SoundIoContext audioContext, bool fallback = false)
+        private static SoundIODevice FindNonRawDefaultAudioDevice(SoundIO audioContext, bool fallback = false)
         {
-            SoundIoDeviceContext defaultAudioDevice = audioContext.GetOutputDevice(audioContext.DefaultOutputDeviceIndex);
+            SoundIODevice defaultAudioDevice = audioContext.GetOutputDevice(audioContext.DefaultOutputDeviceIndex);
 
             if (!defaultAudioDevice.IsRaw)
             {
                 return defaultAudioDevice;
             }
 
-            for (int i = 0; i < audioContext.OutputDeviceCount; i++)
+            for (int i = 0; i < audioContext.BackendCount; i++)
             {
-                SoundIoDeviceContext audioDevice = audioContext.GetOutputDevice(i);
+                SoundIODevice audioDevice = audioContext.GetOutputDevice(i);
 
                 if (audioDevice.Id == defaultAudioDevice.Id && !audioDevice.IsRaw)
                 {
@@ -118,12 +124,7 @@ namespace Ryujinx.Audio.Backends.SoundIo
             return _updateRequiredEvent;
         }
 
-        public ManualResetEvent GetPauseEvent()
-        {
-            return _pauseEvent;
-        }
-
-        public IHardwareDeviceSession OpenDeviceSession(Direction direction, IVirtualMemoryManager memoryManager, SampleFormat sampleFormat, uint sampleRate, uint channelCount, float volume)
+        public IHardwareDeviceSession OpenDeviceSession(Direction direction, IVirtualMemoryManager memoryManager, SampleFormat sampleFormat, uint sampleRate, uint channelCount)
         {
             if (channelCount == 0)
             {
@@ -135,41 +136,45 @@ namespace Ryujinx.Audio.Backends.SoundIo
                 sampleRate = Constants.TargetSampleRate;
             }
 
-            volume = Math.Clamp(volume, 0, 1);
-
             if (direction != Direction.Output)
             {
                 throw new NotImplementedException("Input direction is currently not implemented on SoundIO backend!");
             }
 
-            SoundIoHardwareDeviceSession session = new SoundIoHardwareDeviceSession(this, memoryManager, sampleFormat, sampleRate, channelCount, volume);
+            lock (_lock)
+            {
+                SoundIoHardwareDeviceSession session = new SoundIoHardwareDeviceSession(this, memoryManager, sampleFormat, sampleRate, channelCount);
 
-            _sessions.TryAdd(session, 0);
+                _sessions.Add(session);
 
-            return session;
+                return session;
+            }
         }
 
-        internal bool Unregister(SoundIoHardwareDeviceSession session)
+        internal void Unregister(SoundIoHardwareDeviceSession session)
         {
-            return _sessions.TryRemove(session, out _);
+            lock (_lock)
+            {
+                _sessions.Remove(session);
+            }
         }
 
-        public static SoundIoFormat GetSoundIoFormat(SampleFormat format)
+        public static SoundIOFormat GetSoundIoFormat(SampleFormat format)
         {
             return format switch
             {
-                SampleFormat.PcmInt8 => SoundIoFormat.S8,
-                SampleFormat.PcmInt16 => SoundIoFormat.S16LE,
-                SampleFormat.PcmInt24 => SoundIoFormat.S24LE,
-                SampleFormat.PcmInt32 => SoundIoFormat.S32LE,
-                SampleFormat.PcmFloat => SoundIoFormat.Float32LE,
+                SampleFormat.PcmInt8 => SoundIOFormat.S8,
+                SampleFormat.PcmInt16 => SoundIOFormat.S16LE,
+                SampleFormat.PcmInt24 => SoundIOFormat.S24LE,
+                SampleFormat.PcmInt32 => SoundIOFormat.S32LE,
+                SampleFormat.PcmFloat => SoundIOFormat.Float32LE,
                 _ => throw new ArgumentException ($"Unsupported sample format {format}"),
             };
         }
 
-        internal SoundIoOutStreamContext OpenStream(SampleFormat requestedSampleFormat, uint requestedSampleRate, uint requestedChannelCount)
+        internal SoundIOOutStream OpenStream(SampleFormat requestedSampleFormat, uint requestedSampleRate, uint requestedChannelCount)
         {
-            SoundIoFormat driverSampleFormat = GetSoundIoFormat(requestedSampleFormat);
+            SoundIOFormat driverSampleFormat = GetSoundIoFormat(requestedSampleFormat);
 
             if (!_audioDevice.SupportsSampleRate((int)requestedSampleRate))
             {
@@ -186,10 +191,10 @@ namespace Ryujinx.Audio.Backends.SoundIo
                 throw new ArgumentException($"This sound device does not support channel count {requestedChannelCount}");
             }
 
-            SoundIoOutStreamContext result = _audioDevice.CreateOutStream();
+            SoundIOOutStream result = _audioDevice.CreateOutStream();
 
             result.Name = "Ryujinx";
-            result.Layout = SoundIoChannelLayout.GetDefaultValue((int)requestedChannelCount);
+            result.Layout = SoundIOChannelLayout.GetDefault((int)requestedChannelCount);
             result.Format = driverSampleFormat;
             result.SampleRate = (int)requestedSampleRate;
 
@@ -203,24 +208,22 @@ namespace Ryujinx.Audio.Backends.SoundIo
 
         public void Dispose()
         {
-            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) == 0)
-            {
-                Dispose(true);
-            }
+            Dispose(true);
         }
 
         protected virtual void Dispose(bool disposing)
         {
             if (disposing)
             {
-                foreach (SoundIoHardwareDeviceSession session in _sessions.Keys)
+                while (_sessions.Count > 0)
                 {
+                    SoundIoHardwareDeviceSession session = _sessions[_sessions.Count - 1];
+
                     session.Dispose();
                 }
 
                 _audioContext.Disconnect();
                 _audioContext.Dispose();
-                _pauseEvent.Dispose();
             }
         }
 

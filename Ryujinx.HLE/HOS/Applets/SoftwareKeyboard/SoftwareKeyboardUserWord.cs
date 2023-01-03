@@ -5,9 +5,10 @@ namespace Ryujinx.HLE.HOS.Applets.SoftwareKeyboard
     /// <summary>
     /// A structure used by SetUserWordInfo request to the software keyboard.
     /// </summary>
-    [StructLayout(LayoutKind.Sequential, Size = 0x64)]
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
     struct SoftwareKeyboardUserWord
     {
-        // Unknown
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 100)]
+        public byte[] Unknown;
     }
 }

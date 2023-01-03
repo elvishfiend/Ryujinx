@@ -1,6 +1,6 @@
 namespace Ryujinx.Graphics.GAL
 {
-    public readonly struct StencilTestDescriptor
+    public struct StencilTestDescriptor
     {
         public bool TestEnable { get; }
 

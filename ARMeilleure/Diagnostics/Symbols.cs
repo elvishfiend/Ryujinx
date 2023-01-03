@@ -6,7 +6,7 @@ namespace ARMeilleure.Diagnostics
 {
     static class Symbols
     {
-        private readonly struct RangedSymbol
+        private struct RangedSymbol
         {
             public readonly ulong Start;
             public readonly ulong End;

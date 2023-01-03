@@ -15,7 +15,6 @@ namespace Ryujinx.Graphics.Vic.Image
             switch (config.OutPixelFormat)
             {
                 case PixelFormat.A8B8G8R8:
-                case PixelFormat.X8B8G8R8:
                     WriteA8B8G8R8(rm, input, ref config, ref offsets);
                     break;
                 case PixelFormat.A8R8G8B8:
@@ -433,7 +432,7 @@ namespace Ryujinx.Graphics.Vic.Image
         {
             if (linear)
             {
-                rm.Gmm.WriteMapped(ExtendOffset(offset), src);
+                rm.Gmm.Write(ExtendOffset(offset), src);
                 return;
             }
 
@@ -456,7 +455,7 @@ namespace Ryujinx.Graphics.Vic.Image
 
             LayoutConverter.ConvertLinearToBlockLinear(dst, width, height, dstStride, bytesPerPixel, gobBlocksInY, src);
 
-            rm.Gmm.WriteMapped(ExtendOffset(offset), dst);
+            rm.Gmm.Write(ExtendOffset(offset), dst);
 
             rm.BufferPool.Return(dstIndex);
         }

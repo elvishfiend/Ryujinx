@@ -2,14 +2,13 @@ using Ryujinx.Common.Logging;
 using Ryujinx.HLE.HOS.Ipc;
 using Ryujinx.HLE.HOS.Kernel.Common;
 using Ryujinx.HLE.HOS.Kernel.Threading;
-using Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.SystemAppletProxy.Types;
 using System;
 
 namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.SystemAppletProxy
 {
     class ISelfController : IpcService
     {
-        private readonly ulong _pid;
+        private readonly long _pid;
 
         private KEvent _libraryAppletLaunchableEvent;
         private int    _libraryAppletLaunchableEventHandle;
@@ -32,18 +31,17 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
         private bool _handlesRequestToDisplay            = false;
         private bool _autoSleepDisabled                  = false;
         private bool _albumImageTakenNotificationEnabled = false;
-        private bool _recordVolumeMuted = false;
 
         private uint _screenShotImageOrientation = 0;
         private uint _idleTimeDetectionExtension = 0;
 
-        public ISelfController(ServiceCtx context, ulong pid)
+        public ISelfController(Horizon system, long pid)
         {
-            _libraryAppletLaunchableEvent = new KEvent(context.Device.System.KernelContext);
+            _libraryAppletLaunchableEvent = new KEvent(system.KernelContext);
             _pid = pid;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // Exit()
         public ResultCode Exit(ServiceCtx context)
         {
@@ -52,7 +50,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // LockExit()
         public ResultCode LockExit(ServiceCtx context)
         {
@@ -61,7 +59,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // UnlockExit()
         public ResultCode UnlockExit(ServiceCtx context)
         {
@@ -70,7 +68,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(3)] // 2.0.0+
+        [Command(3)] // 2.0.0+
         // EnterFatalSection()
         public ResultCode EnterFatalSection(ServiceCtx context)
         {
@@ -82,7 +80,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(4)] // 2.0.0+
+        [Command(4)] // 2.0.0+
         // LeaveFatalSection()
         public ResultCode LeaveFatalSection(ServiceCtx context)
         {
@@ -103,7 +101,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return result;
         }
 
-        [CommandHipc(9)]
+        [Command(9)]
         // GetLibraryAppletLaunchableEvent() -> handle<copy>
         public ResultCode GetLibraryAppletLaunchableEvent(ServiceCtx context)
         {
@@ -124,7 +122,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(10)]
+        [Command(10)]
         // SetScreenShotPermission(u32)
         public ResultCode SetScreenShotPermission(ServiceCtx context)
         {
@@ -137,7 +135,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(11)]
+        [Command(11)]
         // SetOperationModeChangedNotification(b8)
         public ResultCode SetOperationModeChangedNotification(ServiceCtx context)
         {
@@ -150,7 +148,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(12)]
+        [Command(12)]
         // SetPerformanceModeChangedNotification(b8)
         public ResultCode SetPerformanceModeChangedNotification(ServiceCtx context)
         {
@@ -163,7 +161,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(13)]
+        [Command(13)]
         // SetFocusHandlingMode(b8, b8, b8)
         public ResultCode SetFocusHandlingMode(ServiceCtx context)
         {
@@ -176,7 +174,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(14)]
+        [Command(14)]
         // SetRestartMessageEnabled(b8)
         public ResultCode SetRestartMessageEnabled(ServiceCtx context)
         {
@@ -189,7 +187,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(16)] // 2.0.0+
+        [Command(16)] // 2.0.0+
         // SetOutOfFocusSuspendingEnabled(b8)
         public ResultCode SetOutOfFocusSuspendingEnabled(ServiceCtx context)
         {
@@ -202,7 +200,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(19)] // 3.0.0+
+        [Command(19)] // 3.0.0+
         // SetScreenShotImageOrientation(u32)
         public ResultCode SetScreenShotImageOrientation(ServiceCtx context)
         {
@@ -215,34 +213,24 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(40)]
+        [Command(40)]
         // CreateManagedDisplayLayer() -> u64
         public ResultCode CreateManagedDisplayLayer(ServiceCtx context)
         {
-            context.Device.System.SurfaceFlinger.CreateLayer(out long layerId, _pid);
-            context.Device.System.SurfaceFlinger.SetRenderLayer(layerId);
+            context.Device.System.SurfaceFlinger.CreateLayer(_pid, out long layerId);
 
             context.ResponseData.Write(layerId);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(41)] // 4.0.0+
-        // IsSystemBufferSharingEnabled()
-        public ResultCode IsSystemBufferSharingEnabled(ServiceCtx context)
-        {
-            // NOTE: Service checks a private field and return an error if the SystemBufferSharing is disabled.
-
-            return ResultCode.NotImplemented;
-        }
-
-        [CommandHipc(44)] // 10.0.0+
+        [Command(44)] // 10.0.0+
         // CreateManagedDisplaySeparableLayer() -> (u64, u64)
         public ResultCode CreateManagedDisplaySeparableLayer(ServiceCtx context)
         {
-            context.Device.System.SurfaceFlinger.CreateLayer(out long displayLayerId, _pid);
-            context.Device.System.SurfaceFlinger.CreateLayer(out long recordingLayerId, _pid);
-            context.Device.System.SurfaceFlinger.SetRenderLayer(displayLayerId);
+            // NOTE: first create the recoding layer and then the display one because right now Surface Flinger only use the last id.
+            context.Device.System.SurfaceFlinger.CreateLayer(_pid, out long recordingLayerId);
+            context.Device.System.SurfaceFlinger.CreateLayer(_pid, out long displayLayerId);
 
             context.ResponseData.Write(displayLayerId);
             context.ResponseData.Write(recordingLayerId);
@@ -250,7 +238,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(50)]
+        [Command(50)]
         // SetHandlesRequestToDisplay(b8)
         public ResultCode SetHandlesRequestToDisplay(ServiceCtx context)
         {
@@ -263,7 +251,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(62)]
+        [Command(62)]
         // SetIdleTimeDetectionExtension(u32)
         public ResultCode SetIdleTimeDetectionExtension(ServiceCtx context)
         {
@@ -276,7 +264,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(63)]
+        [Command(63)]
         // GetIdleTimeDetectionExtension() -> u32
         public ResultCode GetIdleTimeDetectionExtension(ServiceCtx context)
         {
@@ -287,30 +275,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(65)]
-        // ReportUserIsActive()
-        public ResultCode ReportUserIsActive(ServiceCtx context)
-        {
-            // TODO: Call idle:sys ReportUserIsActive when implemented.
-
-            Logger.Stub?.PrintStub(LogClass.ServiceAm);
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(67)] //3.0.0+
-        // IsIlluminanceAvailable() -> bool
-        public ResultCode IsIlluminanceAvailable(ServiceCtx context)
-        {
-            // NOTE: This should call IsAmbientLightSensorAvailable through to Lbl, but there's no situation where we'd want false.
-            context.ResponseData.Write(true);
-            
-            Logger.Stub?.PrintStub(LogClass.ServiceAm);
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(68)]
+        [Command(68)]
         // SetAutoSleepDisabled(u8)
         public ResultCode SetAutoSleepDisabled(ServiceCtx context)
         {
@@ -321,7 +286,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(69)]
+        [Command(69)]
         // IsAutoSleepDisabled() -> u8
         public ResultCode IsAutoSleepDisabled(ServiceCtx context)
         {
@@ -330,36 +295,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(71)] //5.0.0+
-        // GetCurrentIlluminanceEx() -> (bool, f32)
-        public ResultCode GetCurrentIlluminanceEx(ServiceCtx context)
-        {
-            // TODO: The light value should be configurable - presumably users using software that takes advantage will want control.
-            context.ResponseData.Write(1); // OverLimit
-            context.ResponseData.Write(10000f); // Lux - 10K lux is ambient light.
-
-            Logger.Stub?.PrintStub(LogClass.ServiceAm);
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(80)] // 4.0.0+
-        // SetWirelessPriorityMode(s32 wireless_priority_mode)
-        public ResultCode SetWirelessPriorityMode(ServiceCtx context)
-        {
-            WirelessPriorityMode wirelessPriorityMode = (WirelessPriorityMode)context.RequestData.ReadInt32();
-
-            if (wirelessPriorityMode > WirelessPriorityMode.Unknown2)
-            {
-                return ResultCode.InvalidParameters;
-            }
-
-            Logger.Stub?.PrintStub(LogClass.ServiceAm, new { wirelessPriorityMode });
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(90)] // 6.0.0+
+        [Command(90)] // 6.0.0+
         // GetAccumulatedSuspendedTickValue() -> u64
         public ResultCode GetAccumulatedSuspendedTickValue(ServiceCtx context)
         {
@@ -368,7 +304,7 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(91)] // 6.0.0+
+        [Command(91)] // 6.0.0+
         // GetAccumulatedSuspendedTickChangedEvent() -> handle<copy>
         public ResultCode GetAccumulatedSuspendedTickChangedEvent(ServiceCtx context)
         {
@@ -389,42 +325,13 @@ namespace Ryujinx.HLE.HOS.Services.Am.AppletAE.AllSystemAppletProxiesService.Sys
             return ResultCode.Success;
         }
 
-        [CommandHipc(100)] // 7.0.0+
+        [Command(100)] // 7.0.0+
         // SetAlbumImageTakenNotificationEnabled(u8)
         public ResultCode SetAlbumImageTakenNotificationEnabled(ServiceCtx context)
         {
             bool albumImageTakenNotificationEnabled = context.RequestData.ReadBoolean();
 
             _albumImageTakenNotificationEnabled = albumImageTakenNotificationEnabled;
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(120)] // 11.0.0+
-        // SaveCurrentScreenshot(s32 album_report_option)
-        public ResultCode SaveCurrentScreenshot(ServiceCtx context)
-        {
-            AlbumReportOption albumReportOption = (AlbumReportOption)context.RequestData.ReadInt32();
-
-            if (albumReportOption > AlbumReportOption.Unknown3)
-            {
-                return ResultCode.InvalidParameters;
-            }
-
-            Logger.Stub?.PrintStub(LogClass.ServiceAm, new { albumReportOption });
-
-            return ResultCode.Success;
-        }
-
-        [CommandHipc(130)] // 13.0.0+
-        // SetRecordVolumeMuted(b8)
-        public ResultCode SetRecordVolumeMuted(ServiceCtx context)
-        {
-            bool recordVolumeMuted = context.RequestData.ReadBoolean();
-
-            Logger.Stub?.PrintStub(LogClass.ServiceAm, new { recordVolumeMuted });
-
-            _recordVolumeMuted = recordVolumeMuted;
 
             return ResultCode.Success;
         }

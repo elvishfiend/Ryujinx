@@ -1,4 +1,4 @@
-﻿using LibHac.Ncm;
+﻿using Ryujinx.HLE.FileSystem;
 using Ryujinx.HLE.HOS.Services.Ncm.Lr.LocationResolverManager;
 
 namespace Ryujinx.HLE.HOS.Services.Ncm.Lr
@@ -8,7 +8,7 @@ namespace Ryujinx.HLE.HOS.Services.Ncm.Lr
     {
         public ILocationResolverManager(ServiceCtx context) { }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // OpenLocationResolver()
         public ResultCode OpenLocationResolver(ServiceCtx context)
         {

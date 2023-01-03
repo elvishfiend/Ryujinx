@@ -1,63 +1,56 @@
 ﻿using ARMeilleure.CodeGen.Optimizations;
 using ARMeilleure.IntermediateRepresentation;
 using ARMeilleure.Translation;
-using System.Collections.Generic;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
-using static ARMeilleure.IntermediateRepresentation.Operation.Factory;
+
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
+using static ARMeilleure.IntermediateRepresentation.OperationHelper;
 
 namespace ARMeilleure.CodeGen.X86
 {
     static class X86Optimizer
     {
-        private const int MaxConstantUses = 10000;
-
         public static void RunPass(ControlFlowGraph cfg)
         {
-            var constants = new Dictionary<ulong, Operand>();
-
-            Operand GetConstantCopy(BasicBlock block, Operation operation, Operand source)
-            {
-                // If the constant has many uses, we also force a new constant mov to be added, in order
-                // to avoid overflow of the counts field (that is limited to 16 bits).
-                if (!constants.TryGetValue(source.Value, out var constant) || constant.UsesCount > MaxConstantUses)
-                {
-                    constant = Local(source.Type);
-
-                    Operation copyOp = Operation(Instruction.Copy, constant, source);
-
-                    block.Operations.AddBefore(operation, copyOp);
-
-                    constants[source.Value] = constant;
-                }
-
-                return constant;
-            }
-
             for (BasicBlock block = cfg.Blocks.First; block != null; block = block.ListNext)
             {
-                constants.Clear();
+                Node nextNode;
 
-                Operation nextNode;
-
-                for (Operation node = block.Operations.First; node != default; node = nextNode)
+                for (Node node = block.Operations.First; node != null; node = nextNode)
                 {
                     nextNode = node.ListNext;
 
+                    if (!(node is Operation operation))
+                    {
+                        continue;
+                    }
+
                     // Insert copies for constants that can't fit on a 32-bits immediate.
                     // Doing this early unblocks a few optimizations.
-                    if (node.Instruction == Instruction.Add)
+                    if (operation.Instruction == Instruction.Add)
                     {
-                        Operand src1 = node.GetSource(0);
-                        Operand src2 = node.GetSource(1);
+                        Operand src1 = operation.GetSource(0);
+                        Operand src2 = operation.GetSource(1);
 
                         if (src1.Kind == OperandKind.Constant && (src1.Relocatable || CodeGenCommon.IsLongConst(src1)))
                         {
-                            node.SetSource(0, GetConstantCopy(block, node, src1));
+                            Operand temp = Local(src1.Type);
+
+                            Operation copyOp = Operation(Instruction.Copy, temp, src1);
+
+                            block.Operations.AddBefore(operation, copyOp);
+
+                            operation.SetSource(0, temp);
                         }
 
                         if (src2.Kind == OperandKind.Constant && (src2.Relocatable || CodeGenCommon.IsLongConst(src2)))
                         {
-                            node.SetSource(1, GetConstantCopy(block, node, src2));
+                            Operand temp = Local(src2.Type);
+
+                            Operation copyOp = Operation(Instruction.Copy, temp, src2);
+
+                            block.Operations.AddBefore(operation, copyOp);
+
+                            operation.SetSource(1, temp);
                         }
                     }
 
@@ -68,24 +61,24 @@ namespace ARMeilleure.CodeGen.X86
                     //  mov rax, [rax]
                     // Into:
                     //  mov rax, [rax+rbx*4+0xcafe]
-                    if (IsMemoryLoadOrStore(node.Instruction))
+                    if (IsMemoryLoadOrStore(operation.Instruction))
                     {
                         OperandType type;
 
-                        if (node.Destination != default)
+                        if (operation.Destination != null)
                         {
-                            type = node.Destination.Type;
+                            type = operation.Destination.Type;
                         }
                         else
                         {
-                            type = node.GetSource(1).Type;
+                            type = operation.GetSource(1).Type;
                         }
 
-                        Operand memOp = GetMemoryOperandOrNull(node.GetSource(0), type);
+                        MemoryOperand memOp = GetMemoryOperandOrNull(operation.GetSource(0), type);
 
-                        if (memOp != default)
+                        if (memOp != null)
                         {
-                            node.SetSource(0, memOp);
+                            operation.SetSource(0, memOp);
                         }
                     }
                 }
@@ -94,7 +87,7 @@ namespace ARMeilleure.CodeGen.X86
             Optimizer.RemoveUnusedNodes(cfg);
         }
 
-        private static Operand GetMemoryOperandOrNull(Operand addr, OperandType type)
+        private static MemoryOperand GetMemoryOperandOrNull(Operand addr, OperandType type)
         {
             Operand baseOp = addr;
 
@@ -115,12 +108,7 @@ namespace ARMeilleure.CodeGen.X86
             // If baseOp is still equal to address, then there's nothing that can be optimized.
             if (baseOp == addr)
             {
-                return default;
-            }
-
-            if (imm == 0 && scale == Multiplier.x1 && indexOp != default)
-            {
-                imm = GetConstOp(ref indexOp);
+                return null;
             }
 
             return MemoryOp(type, baseOp, indexOp, scale, imm);
@@ -130,7 +118,7 @@ namespace ARMeilleure.CodeGen.X86
         {
             Operation operation = GetAsgOpWithInst(baseOp, Instruction.Add);
 
-            if (operation == default)
+            if (operation == null)
             {
                 return 0;
             }
@@ -170,13 +158,13 @@ namespace ARMeilleure.CodeGen.X86
 
         private static (Operand, Multiplier) GetIndexOp(ref Operand baseOp)
         {
-            Operand indexOp = default;
+            Operand indexOp = null;
 
             Multiplier scale = Multiplier.x1;
 
             Operation addOp = GetAsgOpWithInst(baseOp, Instruction.Add);
 
-            if (addOp == default)
+            if (addOp == null)
             {
                 return (indexOp, scale);
             }
@@ -196,14 +184,14 @@ namespace ARMeilleure.CodeGen.X86
 
             bool indexOnSrc2 = false;
 
-            if (shlOp == default)
+            if (shlOp == null)
             {
                 shlOp = GetAsgOpWithInst(src2, Instruction.ShiftLeft);
 
                 indexOnSrc2 = true;
             }
 
-            if (shlOp != default)
+            if (shlOp != null)
             {
                 Operand shSrc = shlOp.GetSource(0);
                 Operand shift = shlOp.GetSource(1);
@@ -231,19 +219,24 @@ namespace ARMeilleure.CodeGen.X86
             // If we have multiple assignments, folding is not safe
             // as the value may be different depending on the
             // control flow path.
-            if (op.AssignmentsCount != 1)
+            if (op.Assignments.Count != 1)
             {
-                return default;
+                return null;
             }
 
-            Operation asgOp = op.Assignments[0];
+            Node asgOp = op.Assignments[0];
 
-            if (asgOp.Instruction != inst)
+            if (!(asgOp is Operation operation))
             {
-                return default;
+                return null;
             }
 
-            return asgOp;
+            if (operation.Instruction != inst)
+            {
+                return null;
+            }
+
+            return operation;
         }
 
         private static bool IsMemoryLoadOrStore(Instruction inst)

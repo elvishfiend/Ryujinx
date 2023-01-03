@@ -2,43 +2,30 @@ namespace Ryujinx.Graphics.Shader.IntermediateRepresentation
 {
     class TextureOperation : Operation
     {
-        public const int DefaultCbufSlot = -1;
+        private const int DefaultCbufSlot = -1;
 
-        public SamplerType Type { get; set; }
-        public TextureFormat Format { get; set; }
+        public SamplerType  Type  { get; private set; }
         public TextureFlags Flags { get; private set; }
 
         public int CbufSlot { get; private set; }
+
         public int Handle { get; private set; }
 
-        public TextureOperation(
-            Instruction inst,
-            SamplerType type,
-            TextureFormat format,
-            TextureFlags flags,
-            int cbufSlot,
-            int handle,
-            int compIndex,
-            Operand[] dests,
-            Operand[] sources) : base(inst, compIndex, dests, sources)
-        {
-            Type = type;
-            Format = format;
-            Flags = flags;
-            CbufSlot = cbufSlot;
-            Handle = handle;
-        }
+        public TextureFormat Format { get; set; }
 
         public TextureOperation(
-            Instruction inst,
-            SamplerType type,
-            TextureFormat format,
-            TextureFlags flags,
-            int handle,
-            int compIndex,
-            Operand[] dests,
-            Operand[] sources) : this(inst, type, format, flags, DefaultCbufSlot, handle, compIndex, dests, sources)
+            Instruction      inst,
+            SamplerType      type,
+            TextureFlags     flags,
+            int              handle,
+            int              compIndex,
+            Operand          dest,
+            params Operand[] sources) : base(inst, compIndex, dest, sources)
         {
+            Type     = type;
+            Flags    = flags;
+            CbufSlot = DefaultCbufSlot;
+            Handle   = handle;
         }
 
         public void TurnIntoIndexed(int handle)
@@ -58,12 +45,7 @@ namespace Ryujinx.Graphics.Shader.IntermediateRepresentation
             }
 
             CbufSlot = cbufSlot;
-            Handle = handle;
-        }
-
-        public void SetLodLevelFlag()
-        {
-            Flags |= TextureFlags.LodLevel;
+            Handle   = handle;
         }
     }
 }

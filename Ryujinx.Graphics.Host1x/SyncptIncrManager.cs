@@ -7,7 +7,7 @@ namespace Ryujinx.Graphics.Host1x
     {
         private readonly SynchronizationManager _syncMgr;
 
-        private readonly struct SyncptIncr
+        private struct SyncptIncr
         {
             public uint Id { get; }
             public ClassId ClassId { get; }

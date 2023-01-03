@@ -6,8 +6,6 @@ namespace Ryujinx.Graphics.GAL
     {
         bool Invalid { get; set; }
 
-        bool ReserveForHostAccess();
-
         void Flush();
     }
 }

@@ -3,16 +3,14 @@ using System;
 namespace Ryujinx.HLE.HOS.Kernel.Memory
 {
     [Flags]
-    enum KMemoryPermission : uint
+    enum KMemoryPermission : byte
     {
-        None     = 0,
-        UserMask = Read | Write | Execute,
-        Mask     = uint.MaxValue,
+        None = 0,
+        Mask = 0xff,
 
-        Read     = 1 << 0,
-        Write    = 1 << 1,
-        Execute  = 1 << 2,
-        DontCare = 1 << 28,
+        Read    = 1 << 0,
+        Write   = 1 << 1,
+        Execute = 1 << 2,
 
         ReadAndWrite   = Read | Write,
         ReadAndExecute = Read | Execute

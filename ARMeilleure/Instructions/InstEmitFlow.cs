@@ -5,7 +5,7 @@ using ARMeilleure.Translation;
 
 using static ARMeilleure.Instructions.InstEmitFlowHelper;
 using static ARMeilleure.Instructions.InstEmitHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {

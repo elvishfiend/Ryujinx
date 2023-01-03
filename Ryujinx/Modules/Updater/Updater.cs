@@ -2,8 +2,9 @@ using Gtk;
 using ICSharpCode.SharpZipLib.GZip;
 using ICSharpCode.SharpZipLib.Tar;
 using ICSharpCode.SharpZipLib.Zip;
+using Mono.Unix;
 using Newtonsoft.Json.Linq;
-using Ryujinx.Common;
+using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
 using Ryujinx.Ui;
 using Ryujinx.Ui.Widgets;
@@ -12,7 +13,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -30,25 +30,16 @@ namespace Ryujinx.Modules
         private static readonly string UpdatePublishDir = Path.Combine(UpdateDir, "publish");
         private static readonly int    ConnectionCount  = 4;
 
+        private static string _jobId;
         private static string _buildVer;
         private static string _platformExt;
         private static string _buildUrl;
         private static long   _buildSize;
-
-        private const string GitHubApiURL = "https://api.github.com";
+        
+        private const string AppveyorApiUrl = "https://ci.appveyor.com/api";
 
         // On Windows, GtkSharp.Dependencies adds these extra dirs that must be cleaned during updates.
         private static readonly string[] WindowsDependencyDirs = new string[] { "bin", "etc", "lib", "share" };
-
-        private static HttpClient ConstructHttpClient()
-        {
-            HttpClient result = new HttpClient();
-
-            // Required by GitHub to interract with APIs.
-            result.DefaultRequestHeaders.Add("User-Agent", "Ryujinx-Updater/1.0.0");
-
-            return result;
-        }
 
         public static async Task BeginParse(MainWindow mainWindow, bool showVersionUpToDate)
         {
@@ -60,17 +51,17 @@ namespace Ryujinx.Modules
             int artifactIndex = -1;
 
             // Detect current platform
-            if (OperatingSystem.IsMacOS())
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
                 _platformExt  = "osx_x64.zip";
                 artifactIndex = 1;
             }
-            else if (OperatingSystem.IsWindows())
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 _platformExt  = "win_x64.zip";
                 artifactIndex = 2;
             }
-            else if (OperatingSystem.IsLinux())
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 _platformExt  = "linux_x64.tar.gz";
                 artifactIndex = 0;
@@ -98,45 +89,22 @@ namespace Ryujinx.Modules
                 return;
             }
 
-            // Get latest version number from GitHub API
+            // Get latest version number from Appveyor
             try
             {
-                using (HttpClient jsonClient = ConstructHttpClient())
+                using (WebClient jsonClient = new WebClient())
                 {
-                    string buildInfoURL = $"{GitHubApiURL}/repos/{ReleaseInformations.ReleaseChannelOwner}/{ReleaseInformations.ReleaseChannelRepo}/releases/latest";
-
                     // Fetch latest build information
-                    string  fetchedJson = await jsonClient.GetStringAsync(buildInfoURL);
+                    string  fetchedJson = await jsonClient.DownloadStringTaskAsync($"{AppveyorApiUrl}/projects/gdkchan/ryujinx/branch/master");
                     JObject jsonRoot    = JObject.Parse(fetchedJson);
-                    JToken  assets      = jsonRoot["assets"];
+                    JToken  buildToken  = jsonRoot["build"];
 
-                    _buildVer = (string)jsonRoot["name"];
+                    _jobId    = (string)buildToken["jobs"][0]["jobId"];
+                    _buildVer = (string)buildToken["version"];
+                    _buildUrl = $"{AppveyorApiUrl}/buildjobs/{_jobId}/artifacts/ryujinx-{_buildVer}-{_platformExt}";
 
-                    foreach (JToken asset in assets)
-                    {
-                        string assetName = (string)asset["name"];
-                        string assetState = (string)asset["state"];
-                        string downloadURL = (string)asset["browser_download_url"];
-
-                        if (assetName.StartsWith("ryujinx") && assetName.EndsWith(_platformExt))
-                        {
-                            _buildUrl = downloadURL;
-
-                            if (assetState != "uploaded")
-                            {
-                                if (showVersionUpToDate)
-                                {
-                                    GtkDialog.CreateUpdaterInfoDialog("You are already using the latest version of Ryujinx!", "");
-                                }
-
-                                return;
-                            }
-
-                            break;
-                        }
-                    }
-
-                    if (_buildUrl == null)
+                    // If build not done, assume no new update are availaible.
+                    if ((string)buildToken["jobs"][0]["status"] != "success")
                     {
                         if (showVersionUpToDate)
                         {
@@ -150,7 +118,7 @@ namespace Ryujinx.Modules
             catch (Exception exception)
             {
                 Logger.Error?.Print(LogClass.Application, exception.Message);
-                GtkDialog.CreateErrorDialog("An error occurred when trying to get release information from GitHub Release. This can be caused if a new release is being compiled by GitHub Actions. Try again in a few minutes.");
+                GtkDialog.CreateErrorDialog("An error has occurred when trying to get release information from AppVeyor.");
 
                 return;
             }
@@ -161,8 +129,8 @@ namespace Ryujinx.Modules
             }
             catch
             {
-                GtkDialog.CreateWarningDialog("Failed to convert the received Ryujinx version from GitHub Release.", "Cancelling Update!");
-                Logger.Error?.Print(LogClass.Application, "Failed to convert the received Ryujinx version from GitHub Release!");
+                GtkDialog.CreateWarningDialog("Failed to convert the received Ryujinx version from AppVeyor.", "Cancelling Update!");
+                Logger.Error?.Print(LogClass.Application, "Failed to convert the received Ryujinx version from AppVeyor!");
 
                 return;
             }
@@ -181,20 +149,20 @@ namespace Ryujinx.Modules
             }
 
             // Fetch build size information to learn chunk sizes.
-            using (HttpClient buildSizeClient = ConstructHttpClient())
-            {
+            using (WebClient buildSizeClient = new WebClient()) 
+            { 
                 try
                 {
-                    buildSizeClient.DefaultRequestHeaders.Add("Range", "bytes=0-0");
+                    buildSizeClient.Headers.Add("Range", "bytes=0-0");
+                    await buildSizeClient.DownloadDataTaskAsync(new Uri(_buildUrl));
 
-                    HttpResponseMessage message = await buildSizeClient.GetAsync(new Uri(_buildUrl), HttpCompletionOption.ResponseHeadersRead);
-
-                    _buildSize = message.Content.Headers.ContentRange.Length.Value;
+                    string contentRange = buildSizeClient.ResponseHeaders["Content-Range"];
+                    _buildSize = long.Parse(contentRange.Substring(contentRange.IndexOf('/') + 1));
                 }
                 catch (Exception ex)
                 {
                     Logger.Warning?.Print(LogClass.Application, ex.Message);
-                    Logger.Warning?.Print(LogClass.Application, "Couldn't determine build size for update, using single-threaded updater");
+                    Logger.Warning?.Print(LogClass.Application, "Couldn't determine build size for update, will use single-threaded updater");
 
                     _buildSize = -1;
                 }
@@ -252,10 +220,7 @@ namespace Ryujinx.Modules
 
             for (int i = 0; i < ConnectionCount; i++)
             {
-#pragma warning disable SYSLIB0014
-                // TODO: WebClient is obsolete and need to be replaced with a more complex logic using HttpClient.
                 using (WebClient client = new WebClient())
-#pragma warning restore SYSLIB0014
                 {
                     webClients.Add(client);
 
@@ -293,7 +258,7 @@ namespace Ryujinx.Modules
                         list[index] = args.Result;
                         Interlocked.Increment(ref completedRequests);
 
-                        if (Equals(completedRequests, ConnectionCount))
+                        if (Interlocked.Equals(completedRequests, ConnectionCount))
                         {
                             byte[] mergedFileBytes = new byte[_buildSize];
                             for (int connectionIndex = 0, destinationOffset = 0; connectionIndex < ConnectionCount; connectionIndex++)
@@ -311,7 +276,7 @@ namespace Ryujinx.Modules
                             catch (Exception e)
                             {
                                 Logger.Warning?.Print(LogClass.Application, e.Message);
-                                Logger.Warning?.Print(LogClass.Application, "Multi-Threaded update failed, falling back to single-threaded updater.");
+                                Logger.Warning?.Print(LogClass.Application, $"Multi-Threaded update failed, falling back to single-threaded updater.");
 
                                 DoUpdateWithSingleThread(updateDialog, downloadUrl, updateFile);
 
@@ -327,8 +292,8 @@ namespace Ryujinx.Modules
                     catch (WebException ex)
                     {
                         Logger.Warning?.Print(LogClass.Application, ex.Message);
-                        Logger.Warning?.Print(LogClass.Application, "Multi-Threaded update failed, falling back to single-threaded updater.");
-
+                        Logger.Warning?.Print(LogClass.Application, $"Multi-Threaded update failed, falling back to single-threaded updater.");
+                        
                         for (int j = 0; j < webClients.Count; j++)
                         {
                             webClients[j].CancelAsync();
@@ -342,64 +307,34 @@ namespace Ryujinx.Modules
             }
         }
 
-        private static void DoUpdateWithSingleThreadWorker(UpdateDialog updateDialog, string downloadUrl, string updateFile)
-        {
-            using (HttpClient client = new HttpClient())
-            {
-                // We do not want to timeout while downloading
-                client.Timeout = TimeSpan.FromDays(1);
-
-                using (HttpResponseMessage response = client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).Result)
-                using (Stream remoteFileStream = response.Content.ReadAsStreamAsync().Result)
-                {
-                    using (Stream updateFileStream = File.Open(updateFile, FileMode.Create))
-                    {
-                        long totalBytes = response.Content.Headers.ContentLength.Value;
-                        long byteWritten = 0;
-
-                        byte[] buffer = new byte[32 * 1024];
-
-                        while (true)
-                        {
-                            int readSize = remoteFileStream.Read(buffer);
-
-                            if (readSize == 0)
-                            {
-                                break;
-                            }
-
-                            byteWritten += readSize;
-
-                            updateDialog.ProgressBar.Value = ((double)byteWritten / totalBytes) * 100;
-                            updateFileStream.Write(buffer, 0, readSize);
-                        }
-                    }
-                }
-
-                InstallUpdate(updateDialog, updateFile);
-            }
-        }
-
         private static void DoUpdateWithSingleThread(UpdateDialog updateDialog, string downloadUrl, string updateFile)
         {
-            Thread worker = new Thread(() => DoUpdateWithSingleThreadWorker(updateDialog, downloadUrl, updateFile));
-            worker.Name = "Updater.SingleThreadWorker";
-            worker.Start();
-        }
-
-        private static void SetFileExecutable(string path)
-        {
-            const UnixFileMode ExecutableFileMode = UnixFileMode.UserExecute |
-                                                    UnixFileMode.UserWrite |
-                                                    UnixFileMode.UserRead |
-                                                    UnixFileMode.GroupRead |
-                                                    UnixFileMode.GroupWrite |
-                                                    UnixFileMode.OtherRead |
-                                                    UnixFileMode.OtherWrite;
-
-            if (!OperatingSystem.IsWindows() && File.Exists(path))
+            // Single-Threaded Updater
+            using (WebClient client = new WebClient())
             {
-                File.SetUnixFileMode(path, ExecutableFileMode);
+                client.DownloadProgressChanged += (_, args) =>
+                {
+                    updateDialog.ProgressBar.Value = args.ProgressPercentage;
+                };
+
+                client.DownloadDataCompleted += (_, args) =>
+                {
+                    File.WriteAllBytes(updateFile, args.Result);
+                    InstallUpdate(updateDialog, updateFile);
+                };
+
+                client.DownloadDataAsync(new Uri(downloadUrl));
+            }
+        }
+        
+        private static void SetUnixPermissions()
+        {
+            string ryuBin = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Ryujinx");
+
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                UnixFileInfo unixFileInfo = new UnixFileInfo(ryuBin);
+                unixFileInfo.FileAccessPermissions |= FileAccessPermissions.UserExecute;
             }
         }
 
@@ -409,7 +344,7 @@ namespace Ryujinx.Modules
             updateDialog.MainText.Text     = "Extracting Update...";
             updateDialog.ProgressBar.Value = 0;
 
-            if (OperatingSystem.IsLinux())
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 using (Stream         inStream   = File.OpenRead(updateFile))
                 using (Stream         gzipStream = new GZipInputStream(inStream))
@@ -522,7 +457,7 @@ namespace Ryujinx.Modules
 
             Directory.Delete(UpdateDir, true);
 
-            SetFileExecutable(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Ryujinx"));
+            SetUnixPermissions();
 
             updateDialog.MainText.Text      = "Update Complete!";
             updateDialog.SecondaryText.Text = "Do you want to restart Ryujinx now?";
@@ -556,7 +491,7 @@ namespace Ryujinx.Modules
                 return false;
             }
 
-            if (Program.Version.Contains("dirty") || !ReleaseInformations.IsValid())
+            if (Program.Version.Contains("dirty"))
             {
                 if (showWarnings)
                 {
@@ -570,14 +505,7 @@ namespace Ryujinx.Modules
 #else
             if (showWarnings)
             {
-                if (ReleaseInformations.IsFlatHubBuild())
-                {
-                    GtkDialog.CreateWarningDialog("Updater Disabled!", "Please update Ryujinx via FlatHub.");
-                }
-                else
-                {
-                    GtkDialog.CreateWarningDialog("Updater Disabled!", "Please download Ryujinx at https://ryujinx.org/ if you are looking for a supported version.");
-                }
+                GtkDialog.CreateWarningDialog("Updater Disabled!", "Please download Ryujinx at https://ryujinx.org/ if you are looking for a supported version.");
             }
 
             return false;
@@ -589,7 +517,7 @@ namespace Ryujinx.Modules
         {
             var files = Directory.EnumerateFiles(HomeDir); // All files directly in base dir.
 
-            if (OperatingSystem.IsWindows())
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 foreach (string dir in WindowsDependencyDirs)
                 {

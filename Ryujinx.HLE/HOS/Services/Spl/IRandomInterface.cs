@@ -1,20 +1,19 @@
-﻿using System.Security.Cryptography;
+﻿using System;
+using System.Security.Cryptography;
 
 namespace Ryujinx.HLE.HOS.Services.Spl
 {
     [Service("csrng")]
-    class IRandomInterface : DisposableIpcService
+    class IRandomInterface : IpcService, IDisposable
     {
-        private RandomNumberGenerator _rng;
-
-        private object _lock = new object();
+        private RNGCryptoServiceProvider _rng;
 
         public IRandomInterface(ServiceCtx context)
         {
-            _rng = RandomNumberGenerator.Create();
+            _rng = new RNGCryptoServiceProvider();
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetRandomBytes() -> buffer<unknown, 6>
         public ResultCode GetRandomBytes(ServiceCtx context)
         {
@@ -22,14 +21,19 @@ namespace Ryujinx.HLE.HOS.Services.Spl
 
             _rng.GetBytes(randomBytes);
 
-            context.Memory.Write(context.Request.ReceiveBuff[0].Position, randomBytes);
+            context.Memory.Write((ulong)context.Request.ReceiveBuff[0].Position, randomBytes);
 
             return ResultCode.Success;
         }
 
-        protected override void Dispose(bool isDisposing)
+        public void Dispose()
         {
-            if (isDisposing)
+            Dispose(true);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
             {
                 _rng.Dispose();
             }

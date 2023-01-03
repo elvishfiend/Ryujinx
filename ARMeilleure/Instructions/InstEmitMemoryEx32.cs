@@ -5,7 +5,7 @@ using ARMeilleure.Translation;
 
 using static ARMeilleure.Instructions.InstEmitHelper;
 using static ARMeilleure.Instructions.InstEmitMemoryExHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -14,11 +14,6 @@ namespace ARMeilleure.Instructions
         public static void Clrex(ArmEmitterContext context)
         {
             EmitClearExclusive(context);
-        }
-
-        public static void Csdb(ArmEmitterContext context)
-        {
-            // Execute as no-op.
         }
 
         public static void Dmb(ArmEmitterContext context) => EmitBarrier(context);
@@ -146,13 +141,13 @@ namespace ARMeilleure.Instructions
             var exclusive = (accType & AccessType.Exclusive) != 0;
             var ordered = (accType & AccessType.Ordered) != 0;
 
+            if (ordered)
+            {
+                EmitBarrier(context);
+            }
+
             if ((accType & AccessType.Load) != 0)
             {
-                if (ordered)
-                {
-                    EmitBarrier(context);
-                }
-
                 if (size == DWordSizeLog2)
                 {
                     // Keep loads atomic - make the call to get the whole region and then decompose it into parts
@@ -172,13 +167,13 @@ namespace ARMeilleure.Instructions
                     context.BranchIfTrue(lblBigEndian, GetFlag(PState.EFlag));
 
                     SetIntA32(context, op.Rt, valueLow);
-                    SetIntA32(context, op.Rt2, valueHigh);
+                    SetIntA32(context, op.Rt | 1, valueHigh);
 
                     context.Branch(lblEnd);
 
                     context.MarkLabel(lblBigEndian);
 
-                    SetIntA32(context, op.Rt2, valueLow);
+                    SetIntA32(context, op.Rt | 1, valueLow);
                     SetIntA32(context, op.Rt, valueHigh);
 
                     context.MarkLabel(lblEnd);
@@ -195,7 +190,7 @@ namespace ARMeilleure.Instructions
                     // Split the result into 2 words (based on endianness)
 
                     Operand lo = context.ZeroExtend32(OperandType.I64, GetIntA32(context, op.Rt));
-                    Operand hi = context.ZeroExtend32(OperandType.I64, GetIntA32(context, op.Rt2));
+                    Operand hi = context.ZeroExtend32(OperandType.I64, GetIntA32(context, op.Rt | 1));
 
                     Operand lblBigEndian = Label();
                     Operand lblEnd = Label();
@@ -218,11 +213,6 @@ namespace ARMeilleure.Instructions
                 {
                     Operand value = context.ZeroExtend32(OperandType.I64, GetIntA32(context, op.Rt));
                     EmitStoreExclusive(context, address, value, exclusive, size, op.Rd, a32: true);
-                }
-
-                if (ordered)
-                {
-                    EmitBarrier(context);
                 }
             }
         }

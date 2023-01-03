@@ -1,11 +1,10 @@
 using Gtk;
+using Ryujinx.HLE;
 using Ryujinx.HLE.HOS.Applets;
 using Ryujinx.HLE.HOS.Services.Am.AppletOE.ApplicationProxyService.ApplicationProxy.Types;
-using Ryujinx.HLE.Ui;
 using Ryujinx.Ui.Widgets;
 using System;
 using System.Threading;
-using Action = System.Action;
 
 namespace Ryujinx.Ui.Applet
 {
@@ -13,13 +12,9 @@ namespace Ryujinx.Ui.Applet
     {
         private readonly Window _parent;
 
-        public IHostUiTheme HostUiTheme { get; }
-
         public GtkHostUiHandler(Window parent)
         {
             _parent = parent;
-
-            HostUiTheme = new GtkHostUiTheme(parent);
         }
 
         public bool DisplayMessageDialog(ControllerAppletUiArgs args)
@@ -136,8 +131,8 @@ namespace Ryujinx.Ui.Applet
 
         public void ExecuteProgram(HLE.Switch device, ProgramSpecifyKind kind, ulong value)
         {
-            device.Configuration.UserChannelPersistence.ExecuteProgram(kind, value);
-            ((MainWindow)_parent).RendererWidget?.Exit();
+            device.UserChannelPersistence.ExecuteProgram(kind, value);
+            ((MainWindow)_parent).GlRendererWidget?.Exit();
         }
 
         public bool DisplayErrorAppletDialog(string title, string message, string[] buttons)
@@ -190,24 +185,6 @@ namespace Ryujinx.Ui.Applet
             dialogCloseEvent.WaitOne();
 
             return showDetails;
-        }
-
-        private void SynchronousGtkInvoke(Action action)
-        {
-            var waitHandle = new ManualResetEventSlim();
-
-            Application.Invoke(delegate
-            {
-                action();
-                waitHandle.Set();
-            });
-
-            waitHandle.Wait();
-        }
-
-        public IDynamicTextInputHandler CreateDynamicTextInputHandler()
-        {
-            return new GtkDynamicTextInputHandler(_parent);
         }
     }
 }

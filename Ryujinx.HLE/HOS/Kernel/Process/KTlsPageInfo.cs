@@ -6,17 +6,15 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
     {
         public const int TlsEntrySize = 0x200;
 
-        public ulong PageVirtualAddress { get; }
-        public ulong PagePhysicalAddress { get; }
+        public ulong PageAddr { get; private set; }
 
-        private readonly bool[] _isSlotFree;
+        private bool[] _isSlotFree;
 
-        public KTlsPageInfo(ulong pageVirtualAddress, ulong pagePhysicalAddress)
+        public KTlsPageInfo(ulong pageAddress)
         {
-            PageVirtualAddress = pageVirtualAddress;
-            PagePhysicalAddress = pagePhysicalAddress;
+            PageAddr = pageAddress;
 
-            _isSlotFree = new bool[KPageTableBase.PageSize / TlsEntrySize];
+            _isSlotFree = new bool[KMemoryManager.PageSize / TlsEntrySize];
 
             for (int index = 0; index < _isSlotFree.Length; index++)
             {
@@ -26,7 +24,7 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
 
         public bool TryGetFreePage(out ulong address)
         {
-            address = PageVirtualAddress;
+            address = PageAddr;
 
             for (int index = 0; index < _isSlotFree.Length; index++)
             {
@@ -71,7 +69,7 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
 
         public void FreeTlsSlot(ulong address)
         {
-            _isSlotFree[(address - PageVirtualAddress) / TlsEntrySize] = true;
+            _isSlotFree[(address - PageAddr) / TlsEntrySize] = true;
         }
     }
 }

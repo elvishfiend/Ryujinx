@@ -107,9 +107,18 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             return ResultCode.Success;
         }
 
-        public string GetActiveAudioOutputDeviceName()
+        public ResultCode GetAudioSystemMasterVolumeSetting(string name, out float systemMasterVolume)
         {
-            return _registry.ActiveDevice.GetOutputDeviceName();
+            if (TryGetDeviceByName(out VirtualDeviceSession result, name, true))
+            {
+                systemMasterVolume = result.Device.MasterVolume;
+            }
+            else
+            {
+                systemMasterVolume = 0.0f;
+            }
+
+            return ResultCode.Success;
         }
 
         public string[] ListAudioDeviceName()
@@ -123,32 +132,9 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
 
             string[] result = new string[deviceCount];
 
-            int i = 0;
-
-            foreach (VirtualDeviceSession session in _sessions)
-            {
-                if (!_isUsbDeviceSupported && session.Device.IsUsbDevice())
-                {
-                    continue;
-                }
-
-                result[i] = session.Device.Name;
-
-                i++;
-            }
-
-            return result;
-        }
-
-        public string[] ListAudioOutputDeviceName()
-        {
-            int deviceCount = _sessions.Length;
-
-            string[] result = new string[deviceCount];
-
             for (int i = 0; i < deviceCount; i++)
             {
-                result[i] = _sessions[i].Device.GetOutputDeviceName();
+                result[i] = _sessions[i].Device.Name;
             }
 
             return result;

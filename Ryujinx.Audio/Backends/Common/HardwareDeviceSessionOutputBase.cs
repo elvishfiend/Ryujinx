@@ -1,7 +1,23 @@
+﻿//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Integration;
 using Ryujinx.Memory;
-using System.Runtime.CompilerServices;
 
 namespace Ryujinx.Audio.Backends.Common
 {
@@ -36,13 +52,7 @@ namespace Ryujinx.Audio.Backends.Common
 
         protected ulong GetSampleCount(AudioBuffer buffer)
         {
-            return GetSampleCount((int)buffer.DataSize);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        protected ulong GetSampleCount(int dataSize)
-        {
-            return (ulong)BackendHelper.GetSampleCount(RequestedSampleFormat, (int)RequestedChannelCount, dataSize);
+            return (ulong)BackendHelper.GetSampleCount(RequestedSampleFormat, (int)RequestedChannelCount, (int)buffer.DataSize);
         }
 
         public abstract void Dispose();

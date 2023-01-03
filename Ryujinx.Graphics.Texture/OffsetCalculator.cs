@@ -1,5 +1,4 @@
 using Ryujinx.Common;
-using System;
 using System.Runtime.CompilerServices;
 using static Ryujinx.Graphics.Texture.BlockLinearConstants;
 
@@ -112,9 +111,9 @@ namespace Ryujinx.Graphics.Texture
         {
             if (_isLinear)
             {
-                int start = y * Math.Abs(_stride) + x * _bytesPerPixel;
-                int end = (y + height - 1) * Math.Abs(_stride) + (x + width) * _bytesPerPixel;
-                return (y * _stride + x * _bytesPerPixel, end - start);
+                int start = y * _stride + x * _bytesPerPixel;
+                int end = (y + height - 1) * _stride + (x + width) * _bytesPerPixel;
+                return (start, end - start);
             }
             else
             {

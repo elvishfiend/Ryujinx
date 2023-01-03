@@ -16,7 +16,7 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
 
         public ResultCode ExecuteAudioRendererRendering()
         {
-            return (ResultCode)_impl.ExecuteAudioRendererRendering();
+            throw new NotImplementedException();
         }
 
         public uint GetMixBufferCount()
@@ -107,16 +107,6 @@ namespace Ryujinx.HLE.HOS.Services.Audio.AudioRenderer
             {
                 _impl.Dispose();
             }
-        }
-
-        public void SetVoiceDropParameter(float voiceDropParameter)
-        {
-            _impl.SetVoiceDropParameter(voiceDropParameter);
-        }
-
-        public float GetVoiceDropParameter()
-        {
-            return _impl.GetVoiceDropParameter();
         }
     }
 }

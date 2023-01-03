@@ -4,10 +4,10 @@ namespace Ryujinx.HLE.HOS.Ipc
 {
     struct IpcRecvListBuffDesc
     {
-        public ulong Position { get; private set; }
-        public ulong Size     { get; private set; }
+        public long Position { get; private set; }
+        public long Size     { get; private set; }
 
-        public IpcRecvListBuffDesc(ulong position, ulong size)
+        public IpcRecvListBuffDesc(long position, long size)
         {
             Position = position;
             Size = size;
@@ -15,7 +15,7 @@ namespace Ryujinx.HLE.HOS.Ipc
 
         public IpcRecvListBuffDesc(BinaryReader reader)
         {
-            ulong value = reader.ReadUInt64();
+            long value = reader.ReadInt64();
 
             Position = value & 0xffffffffffff;
 

@@ -6,7 +6,7 @@ using System.Diagnostics;
 
 using static ARMeilleure.Instructions.InstEmitHelper;
 using static ARMeilleure.Instructions.InstEmitMemoryExHelper;
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -24,11 +24,6 @@ namespace ARMeilleure.Instructions
         public static void Clrex(ArmEmitterContext context)
         {
             EmitClearExclusive(context);
-        }
-
-        public static void Csdb(ArmEmitterContext context)
-        {
-            // Execute as no-op.
         }
 
         public static void Dmb(ArmEmitterContext context) => EmitBarrier(context);
@@ -135,6 +130,11 @@ namespace ARMeilleure.Instructions
             bool ordered   = (accType & AccessType.Ordered)   != 0;
             bool exclusive = (accType & AccessType.Exclusive) != 0;
 
+            if (ordered)
+            {
+                EmitBarrier(context);
+            }
+
             Operand address = context.Copy(GetIntOrSP(context, op.Rn));
 
             Operand t = GetIntOrZR(context, op.Rt);
@@ -163,16 +163,13 @@ namespace ARMeilleure.Instructions
             {
                 EmitStoreExclusive(context, address, t, exclusive, op.Size, op.Rs, a32: false);
             }
-
-            if (ordered)
-            {
-                EmitBarrier(context);
-            }
         }
 
         private static void EmitBarrier(ArmEmitterContext context)
         {
-            context.MemoryBarrier();
+            // Note: This barrier is most likely not necessary, and probably
+            // doesn't make any difference since we need to do a ton of stuff
+            // (software MMU emulation) to read or write anything anyway.
         }
     }
 }

@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace Ryujinx.Graphics.Vic.Image
 {
-    readonly struct Surface : IDisposable
+    struct Surface : IDisposable
     {
         private readonly int _bufferIndex;
 

@@ -486,7 +486,8 @@ namespace Ryujinx.Graphics.Nvdec.Vp9.Dsp
                 Idct8(tempIn, tempOut);
                 for (j = 0; j < 8; ++j)
                 {
-                    dest[j * stride + i] = ClipPixelAdd(dest[j * stride + i], BitUtils.RoundPowerOfTwo(tempOut[j], 5));
+                    dest[j * stride + i] = ClipPixelAdd(dest[j * stride + i],
+                                                          BitUtils.RoundPowerOfTwo(tempOut[j], 5));
                 }
             }
         }

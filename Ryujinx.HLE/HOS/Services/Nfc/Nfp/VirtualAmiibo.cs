@@ -1,9 +1,8 @@
 ﻿using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Memory;
-using Ryujinx.Cpu;
 using Ryujinx.HLE.HOS.Services.Mii;
 using Ryujinx.HLE.HOS.Services.Mii.Types;
-using Ryujinx.HLE.HOS.Services.Nfc.Nfp.NfpManager;
+using Ryujinx.HLE.HOS.Services.Nfc.Nfp.UserManager;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -40,7 +39,7 @@ namespace Ryujinx.HLE.HOS.Services.Nfc.Nfp
         {
             byte[] uuid = new byte[9];
 
-            Random.Shared.NextBytes(uuid);
+            new Random().NextBytes(uuid);
 
             uuid[3] = (byte)(0x88    ^ uuid[0] ^ uuid[1] ^ uuid[2]);
             uuid[8] = (byte)(uuid[3] ^ uuid[4] ^ uuid[5] ^ uuid[6]);
@@ -64,16 +63,17 @@ namespace Ryujinx.HLE.HOS.Services.Nfc.Nfp
             };
         }
 
-        public static RegisterInfo GetRegisterInfo(ITickSource tickSource, string amiiboId, string nickname)
+        public static RegisterInfo GetRegisterInfo(string amiiboId)
         {
             VirtualAmiiboFile amiiboFile = LoadAmiiboFile(amiiboId);
 
-            UtilityImpl utilityImpl = new UtilityImpl(tickSource);
+            UtilityImpl utilityImpl = new UtilityImpl();
             CharInfo    charInfo    = new CharInfo();
 
             charInfo.SetFromStoreData(StoreData.BuildDefault(utilityImpl, 0));
 
-            charInfo.Nickname = Nickname.FromString(nickname);
+            // TODO: Maybe change the "no name" by the player name when user profile will be implemented.
+            // charInfo.Nickname = Nickname.FromString("Nickname");
 
             RegisterInfo registerInfo = new RegisterInfo()
             {
@@ -85,7 +85,8 @@ namespace Ryujinx.HLE.HOS.Services.Nfc.Nfp
                 Reserved1       = new Array64<byte>(),
                 Reserved2       = new Array58<byte>()
             };
-            "Ryujinx"u8.CopyTo(registerInfo.Nickname.AsSpan());
+
+            Encoding.ASCII.GetBytes("Ryujinx").CopyTo(registerInfo.Nickname.ToSpan());
 
             return registerInfo;
         }
@@ -173,7 +174,7 @@ namespace Ryujinx.HLE.HOS.Services.Nfc.Nfp
 
             if (File.Exists(filePath))
             {
-                virtualAmiiboFile = JsonSerializer.Deserialize<VirtualAmiiboFile>(File.ReadAllText(filePath), new JsonSerializerOptions(JsonSerializerDefaults.General));
+                virtualAmiiboFile = JsonSerializer.Deserialize<VirtualAmiiboFile>(File.ReadAllText(filePath));
             }
             else
             {

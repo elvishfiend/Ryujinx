@@ -1,9 +1,12 @@
+using Ryujinx.HLE.HOS.Services.Account.Acc;
 using System;
 
 namespace Ryujinx.HLE.HOS.SystemState
 {
     public class SystemStateMgr
     {
+        public static readonly UserId DefaultUserId = new UserId("00000000000000010000000000000000");
+
         internal static string[] LanguageCodes = new string[]
         {
             "ja",
@@ -22,8 +25,7 @@ namespace Ryujinx.HLE.HOS.SystemState
             "fr-CA",
             "es-419",
             "zh-Hans",
-            "zh-Hant",
-            "pt-BR"
+            "zh-Hant"
         };
 
         internal long DesiredKeyboardLayout { get; private set; }
@@ -36,32 +38,46 @@ namespace Ryujinx.HLE.HOS.SystemState
 
         public TitleLanguage DesiredTitleLanguage { get; private set; }
 
+        internal string ActiveAudioOutput { get; private set; }
+
         public bool DockedMode { get; set; }
 
         public ColorSet ThemeColor { get; set; }
 
-        public string DeviceNickName { get; set; }
+        public bool InstallContents { get; set; }
+
+        public AccountUtils Account { get; private set; }
 
         public SystemStateMgr()
         {
-            // TODO: Let user specify fields.
+            Account = new AccountUtils();
+
+            Account.AddUser(DefaultUserId, "Player");
+            Account.OpenUser(DefaultUserId);
+
+            // TODO: Let user specify.
             DesiredKeyboardLayout = (long)KeyboardLayout.Default;
-            DeviceNickName        = "Ryujinx's Switch";
         }
 
         public void SetLanguage(SystemLanguage language)
         {
             DesiredSystemLanguage = language;
-            DesiredLanguageCode   = GetLanguageCode((int)DesiredSystemLanguage);
+            DesiredLanguageCode = GetLanguageCode((int)DesiredSystemLanguage);
 
-            DesiredTitleLanguage = language switch
+            switch (language)
             {
-                SystemLanguage.Taiwanese or
-                SystemLanguage.TraditionalChinese => TitleLanguage.TraditionalChinese,
-                SystemLanguage.Chinese or
-                SystemLanguage.SimplifiedChinese  => TitleLanguage.SimplifiedChinese,
-                _                                 => Enum.Parse<TitleLanguage>(Enum.GetName<SystemLanguage>(language)),
-            };
+                case SystemLanguage.Taiwanese:
+                case SystemLanguage.TraditionalChinese:
+                    DesiredTitleLanguage = TitleLanguage.Taiwanese;
+                    break;
+                case SystemLanguage.Chinese:
+                case SystemLanguage.SimplifiedChinese:
+                    DesiredTitleLanguage = TitleLanguage.Chinese;
+                    break;
+                default:
+                    DesiredTitleLanguage = Enum.Parse<TitleLanguage>(Enum.GetName(typeof(SystemLanguage), language));
+                    break;
+            }
         }
 
         public void SetRegion(RegionCode region)

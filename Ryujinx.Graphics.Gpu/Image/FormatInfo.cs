@@ -5,7 +5,7 @@ namespace Ryujinx.Graphics.Gpu.Image
     /// <summary>
     /// Represents texture format information.
     /// </summary>
-    readonly struct FormatInfo
+    struct FormatInfo
     {
         /// <summary>
         /// A default, generic RGBA8 texture format.

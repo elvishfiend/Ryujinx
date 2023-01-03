@@ -588,7 +588,7 @@ namespace Ryujinx.HLE.HOS.Services.Mii.Types
             Nickname        = charInfo.Nickname;
             FontRegion      = charInfo.FontRegion;
             FavoriteColor   = charInfo.FavoriteColor;
-            Gender          = charInfo.Gender;
+            Gender          = (Gender)charInfo.Gender;
             Height          = charInfo.Height;
             Build           = charInfo.Build;
             Type            = charInfo.Type;

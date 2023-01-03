@@ -1,3 +1,20 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Integration;
 using Ryujinx.Audio.Renderer.Dsp.Command;
 using Ryujinx.Audio.Renderer.Utils;
@@ -38,8 +55,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
         private long _playbackEnds;
         private ManualResetEvent _event;
 
-        private ManualResetEvent _pauseEvent;
-
         public AudioProcessor()
         {
             _event = new ManualResetEvent(false);
@@ -61,7 +76,7 @@ namespace Ryujinx.Audio.Renderer.Dsp
             }
         }
 
-        public void Start(IHardwareDeviceDriver deviceDriver, float volume)
+        public void Start(IHardwareDeviceDriver deviceDriver)
         {
             OutputDevices = new IHardwareDevice[Constants.AudioRendererSessionCountMax];
 
@@ -72,14 +87,13 @@ namespace Ryujinx.Audio.Renderer.Dsp
             for (int i = 0; i < OutputDevices.Length; i++)
             {
                 // TODO: Don't hardcode sample rate.
-                OutputDevices[i] = new HardwareDeviceImpl(deviceDriver, channelCount, Constants.TargetSampleRate, volume);
+                OutputDevices[i] = new HardwareDeviceImpl(deviceDriver, channelCount, Constants.TargetSampleRate);
             }
 
             _mailbox = new Mailbox<MailboxMessage>();
             _sessionCommandList = new RendererSession[Constants.AudioRendererSessionCountMax];
             _event.Reset();
             _lastTime = PerformanceCounter.ElapsedNanoseconds;
-            _pauseEvent = deviceDriver.GetPauseEvent();
 
             StartThread();
 
@@ -114,11 +128,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
                 RenderingLimit = renderingLimit,
                 AppletResourceId = appletResourceId
             };
-        }
-
-        public bool HasRemainingCommands(int sessionId)
-        {
-            return _sessionCommandList[sessionId] != null;
         }
 
         public void Signal()
@@ -193,8 +202,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
             while (true)
             {
-                _pauseEvent?.WaitOne();
-
                 MailboxMessage message = _mailbox.ReceiveMessage();
 
                 if (message == MailboxMessage.Stop)
@@ -211,7 +218,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
                         if (_sessionCommandList[i] != null)
                         {
                             _sessionCommandList[i].CommandList.Process(OutputDevices[i]);
-                            _sessionCommandList[i].CommandList.Dispose();
                             _sessionCommandList[i] = null;
                         }
                     }
@@ -231,33 +237,6 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
             Logger.Info?.Print(LogClass.AudioRenderer, "Stopping audio processor");
             _mailbox.SendResponse(MailboxMessage.Stop);
-        }
-
-        public float GetVolume()
-        {
-            if (OutputDevices != null)
-            {
-                foreach (IHardwareDevice outputDevice in OutputDevices)
-                {
-                    if (outputDevice != null)
-                    {
-                        return outputDevice.GetVolume();
-                    }
-                }
-            }
-
-            return 0f;
-        }
-
-        public void SetVolume(float volume)
-        {
-            if (OutputDevices != null)
-            {
-                foreach (IHardwareDevice outputDevice in OutputDevices)
-                {
-                    outputDevice?.SetVolume(volume);
-                }
-            }
         }
 
         public void Dispose()

@@ -1,6 +1,22 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Renderer.Common;
 using System;
-using System.Runtime.CompilerServices;
 
 namespace Ryujinx.Audio.Renderer.Dsp.Command
 {
@@ -12,7 +28,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         public CommandType CommandType => CommandType.MixRampGrouped;
 
-        public uint EstimatedProcessingTime { get; set; }
+        public ulong EstimatedProcessingTime { get; set; }
 
         public uint MixBufferCount { get; }
 
@@ -47,7 +63,6 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
             State = state;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private float ProcessMixRampGrouped(Span<float> outputBuffer, ReadOnlySpan<float> inputBuffer, float volume0, float volume1, int sampleCount)
         {
             float ramp = (volume1 - volume0) / sampleCount;

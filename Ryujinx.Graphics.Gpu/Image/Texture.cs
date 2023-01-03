@@ -1,17 +1,13 @@
 using Ryujinx.Common;
 using Ryujinx.Common.Logging;
-using Ryujinx.Common.Memory;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Gpu.Memory;
 using Ryujinx.Graphics.Texture;
 using Ryujinx.Graphics.Texture.Astc;
-using Ryujinx.Memory;
 using Ryujinx.Memory.Range;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Numerics;
 
 namespace Ryujinx.Graphics.Gpu.Image
 {
@@ -25,8 +21,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         // This method uses much more memory so we want to avoid it if possible.
         private const int ByteComparisonSwitchThreshold = 4;
 
-        private const int MinLevelsForForceAnisotropy = 5;
-
         private struct TexturePoolOwner
         {
             public TexturePool Pool;
@@ -34,7 +28,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         }
 
         private GpuContext _context;
-        private PhysicalMemory _physicalMemory;
 
         private SizeInfo _sizeInfo;
 
@@ -49,24 +42,9 @@ namespace Ryujinx.Graphics.Gpu.Image
         public Target Target { get; private set; }
 
         /// <summary>
-        /// Texture width.
-        /// </summary>
-        public int Width { get; private set; }
-
-        /// <summary>
-        /// Texture height.
-        /// </summary>
-        public int Height { get; private set; }
-
-        /// <summary>
         /// Texture information.
         /// </summary>
         public TextureInfo Info { get; private set; }
-
-        /// <summary>
-        /// Set when anisotropic filtering can be forced on the given texture.
-        /// </summary>
-        public bool CanForceAnisotropy { get; private set; }
 
         /// <summary>
         /// Host scale factor.
@@ -84,6 +62,11 @@ namespace Ryujinx.Graphics.Gpu.Image
         public TextureGroup Group { get; private set; }
 
         /// <summary>
+        /// Set when a texture has been modified by the Host GPU since it was last flushed.
+        /// </summary>
+        public bool IsModified { get; internal set; }
+
+        /// <summary>
         /// Set when a texture has been changed size. This indicates that it may need to be
         /// changed again when obtained as a sampler.
         /// </summary>
@@ -95,17 +78,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// </summary>
         public bool ChangedMapping { get; private set; }
 
-        /// <summary>
-        /// True if the data for this texture must always be flushed when an overlap appears.
-        /// This is useful if SetData is called directly on this texture, but the data is meant for a future texture.
-        /// </summary>
-        public bool AlwaysFlushOnOverlap { get; private set; }
-
-        /// <summary>
-        /// Increments when the host texture is swapped, or when the texture is removed from all pools.
-        /// </summary>
-        public int InvalidatedSequence { get; private set; }
-
         private int _depth;
         private int _layers;
         public int FirstLayer { get; private set; }
@@ -115,8 +87,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         private bool _dirty = true;
         private int _updateCount;
         private byte[] _currentData;
-
-        private bool _modifiedStale = true;
 
         private ITexture _arrayViewTexture;
         private Target   _arrayViewTarget;
@@ -136,6 +106,11 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// Intrusive linked list node used on the auto deletion texture cache.
         /// </summary>
         public LinkedListNode<Texture> CacheNode { get; set; }
+
+        /// <summary>
+        /// Event to fire when texture data is disposed.
+        /// </summary>
+        public event Action<Texture> Disposed;
 
         /// <summary>
         /// Physical memory ranges where the texture data is located.
@@ -164,7 +139,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// Constructs a new instance of the cached GPU texture.
         /// </summary>
         /// <param name="context">GPU context that the texture belongs to</param>
-        /// <param name="physicalMemory">Physical memory where the texture is mapped</param>
         /// <param name="info">Texture information</param>
         /// <param name="sizeInfo">Size information of the texture</param>
         /// <param name="range">Physical memory ranges where the texture data is located</param>
@@ -173,17 +147,16 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// <param name="scaleFactor">The floating point scale factor to initialize with</param>
         /// <param name="scaleMode">The scale mode to initialize with</param>
         private Texture(
-            GpuContext context,
-            PhysicalMemory physicalMemory,
-            TextureInfo info,
-            SizeInfo sizeInfo,
-            MultiRange range,
-            int firstLayer,
-            int firstLevel,
-            float scaleFactor,
+            GpuContext       context,
+            TextureInfo      info,
+            SizeInfo         sizeInfo,
+            MultiRange       range,
+            int              firstLayer,
+            int              firstLevel,
+            float            scaleFactor,
             TextureScaleMode scaleMode)
         {
-            InitializeTexture(context, physicalMemory, info, sizeInfo, range);
+            InitializeTexture(context, info, sizeInfo, range);
 
             FirstLayer = firstLayer;
             FirstLevel = firstLevel;
@@ -198,23 +171,16 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// Constructs a new instance of the cached GPU texture.
         /// </summary>
         /// <param name="context">GPU context that the texture belongs to</param>
-        /// <param name="physicalMemory">Physical memory where the texture is mapped</param>
         /// <param name="info">Texture information</param>
         /// <param name="sizeInfo">Size information of the texture</param>
         /// <param name="range">Physical memory ranges where the texture data is located</param>
         /// <param name="scaleMode">The scale mode to initialize with. If scaled, the texture's data is loaded immediately and scaled up</param>
-        public Texture(
-            GpuContext context,
-            PhysicalMemory physicalMemory,
-            TextureInfo info,
-            SizeInfo sizeInfo,
-            MultiRange range,
-            TextureScaleMode scaleMode)
+        public Texture(GpuContext context, TextureInfo info, SizeInfo sizeInfo, MultiRange range, TextureScaleMode scaleMode)
         {
             ScaleFactor = 1f; // Texture is first loaded at scale 1x.
             ScaleMode = scaleMode;
 
-            InitializeTexture(context, physicalMemory, info, sizeInfo, range);
+            InitializeTexture(context, info, sizeInfo, range);
         }
 
         /// <summary>
@@ -223,21 +189,14 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// Other fields are initialized with their default values.
         /// </summary>
         /// <param name="context">GPU context that the texture belongs to</param>
-        /// <param name="physicalMemory">Physical memory where the texture is mapped</param>
         /// <param name="info">Texture information</param>
         /// <param name="sizeInfo">Size information of the texture</param>
         /// <param name="range">Physical memory ranges where the texture data is located</param>
-        private void InitializeTexture(
-            GpuContext context,
-            PhysicalMemory physicalMemory,
-            TextureInfo info,
-            SizeInfo sizeInfo,
-            MultiRange range)
+        private void InitializeTexture(GpuContext context, TextureInfo info, SizeInfo sizeInfo, MultiRange range)
         {
-            _context = context;
-            _physicalMemory = physicalMemory;
+            _context  = context;
             _sizeInfo = sizeInfo;
-            Range = range;
+            Range     = range;
 
             SetInfo(info);
 
@@ -255,13 +214,11 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// <param name="withData">True if the texture is to be initialized with data</param>
         public void InitializeData(bool isView, bool withData = false)
         {
-            withData |= Group != null && Group.FlushIncompatibleOverlapsIfNeeded();
-
             if (withData)
             {
                 Debug.Assert(!isView);
 
-                TextureCreateInfo createInfo = TextureCache.GetCreateInfo(Info, _context.Capabilities, ScaleFactor);
+                TextureCreateInfo createInfo = TextureManager.GetCreateInfo(Info, _context.Capabilities, ScaleFactor);
                 HostTexture = _context.Renderer.CreateTexture(createInfo, ScaleFactor);
 
                 SynchronizeMemory(); // Load the data.
@@ -277,7 +234,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                 if (!isView)
                 {
                     // Don't update this texture the next time we synchronize.
-                    CheckModified(true);
+                    ConsumeModified();
 
                     if (ScaleMode == TextureScaleMode.Scaled)
                     {
@@ -285,7 +242,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                         ScaleFactor = GraphicsConfig.ResScale;
                     }
 
-                    TextureCreateInfo createInfo = TextureCache.GetCreateInfo(Info, _context.Capabilities, ScaleFactor);
+                    TextureCreateInfo createInfo = TextureManager.GetCreateInfo(Info, _context.Capabilities, ScaleFactor);
                     HostTexture = _context.Renderer.CreateTexture(createInfo, ScaleFactor);
                 }
             }
@@ -296,10 +253,9 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// </summary>
         /// <param name="hasLayerViews">True if the texture will have layer views</param>
         /// <param name="hasMipViews">True if the texture will have mip views</param>
-        /// <param name="incompatibleOverlaps">Groups that overlap with this one but are incompatible</param>
-        public void InitializeGroup(bool hasLayerViews, bool hasMipViews, List<TextureIncompatibleOverlap> incompatibleOverlaps)
+        public void InitializeGroup(bool hasLayerViews, bool hasMipViews)
         {
-            Group = new TextureGroup(_context, _physicalMemory, this, incompatibleOverlaps);
+            Group = new TextureGroup(_context, this);
 
             Group.Initialize(ref _sizeInfo, hasLayerViews, hasMipViews);
         }
@@ -320,7 +276,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         {
             Texture texture = new Texture(
                 _context,
-                _physicalMemory,
                 info,
                 sizeInfo,
                 range,
@@ -329,7 +284,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                 ScaleFactor,
                 ScaleMode);
 
-            TextureCreateInfo createInfo = TextureCache.GetCreateInfo(info, _context.Capabilities, ScaleFactor);
+            TextureCreateInfo createInfo = TextureManager.GetCreateInfo(info, _context.Capabilities, ScaleFactor);
             texture.HostTexture = HostTexture.CreateView(createInfo, firstLayer, firstLevel);
 
             _viewStorage.AddView(texture);
@@ -498,7 +453,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                 Info.SwizzleB,
                 Info.SwizzleA));
 
-            TextureCreateInfo createInfo = TextureCache.GetCreateInfo(Info, _context.Capabilities, ScaleFactor);
+            TextureCreateInfo createInfo = TextureManager.GetCreateInfo(Info, _context.Capabilities, ScaleFactor);
 
             if (_viewStorage != this)
             {
@@ -556,7 +511,7 @@ namespace Ryujinx.Graphics.Gpu.Image
         {
             if (storage == null)
             {
-                TextureCreateInfo createInfo = TextureCache.GetCreateInfo(Info, _context.Capabilities, scale);
+                TextureCreateInfo createInfo = TextureManager.GetCreateInfo(Info, _context.Capabilities, scale);
                 storage = _context.Renderer.CreateTexture(createInfo, scale);
             }
 
@@ -575,8 +530,7 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// <param name="scale">The new scale factor for this texture</param>
         public void SetScale(float scale)
         {
-            bool unscaled = ScaleMode == TextureScaleMode.Blacklisted || (ScaleMode == TextureScaleMode.Undesired && scale == 1);
-            TextureScaleMode newScaleMode = unscaled ? ScaleMode : TextureScaleMode.Scaled;
+            TextureScaleMode newScaleMode = ScaleMode == TextureScaleMode.Blacklisted ? ScaleMode : TextureScaleMode.Scaled;
 
             if (_viewStorage != this)
             {
@@ -604,7 +558,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                     Logger.Debug?.Print(LogClass.Gpu, $"  Recreating view {Info.Width}x{Info.Height} {Info.FormatInfo.Format.ToString()}.");
                     view.ScaleFactor = scale;
 
-                    TextureCreateInfo viewCreateInfo = TextureCache.GetCreateInfo(view.Info, _context.Capabilities, scale);
+                    TextureCreateInfo viewCreateInfo = TextureManager.GetCreateInfo(view.Info, _context.Capabilities, scale);
                     ITexture newView = HostTexture.CreateView(viewCreateInfo, view.FirstLayer - FirstLayer, view.FirstLevel - FirstLevel);
 
                     view.ReplaceStorage(newView);
@@ -625,13 +579,12 @@ namespace Ryujinx.Graphics.Gpu.Image
 
         /// <summary>
         /// Checks if the memory for this texture was modified, and returns true if it was.
-        /// The modified flags are optionally consumed as a result.
+        /// The modified flags are consumed as a result.
         /// </summary>
-        /// <param name="consume">True to consume the dirty flags and reprotect, false to leave them as is</param>
         /// <returns>True if the texture was modified, false otherwise.</returns>
-        public bool CheckModified(bool consume)
+        public bool ConsumeModified()
         {
-            return Group.CheckDirty(this, consume);
+            return Group.ConsumeDirty(this);
         }
 
         /// <summary>
@@ -661,7 +614,7 @@ namespace Ryujinx.Graphics.Gpu.Image
             }
             else
             {
-                Group.CheckDirty(this, true);
+                Group.ConsumeDirty(this);
                 SynchronizeFull();
             }
         }
@@ -675,14 +628,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         }
 
         /// <summary>
-        /// Signal that the modified state is dirty, indicating that the texture group should be notified when it changes.
-        /// </summary>
-        public void SignalModifiedDirty()
-        {
-            _modifiedStale = true;
-        }
-
-        /// <summary>
         /// Fully synchronizes guest and host memory.
         /// This will replace the entire texture with the data present in guest memory.
         /// </summary>
@@ -693,7 +638,9 @@ namespace Ryujinx.Graphics.Gpu.Image
                 BlacklistScale();
             }
 
-            ReadOnlySpan<byte> data = _physicalMemory.GetSpan(Range);
+            ReadOnlySpan<byte> data = _context.PhysicalMemory.GetSpan(Range);
+
+            IsModified = false;
 
             // If the host does not support ASTC compression, we need to do the decompression.
             // The decompression is slow, so we want to avoid it as much as possible.
@@ -708,18 +655,17 @@ namespace Ryujinx.Graphics.Gpu.Image
                 else
                 {
                     bool dataMatches = _currentData != null && data.SequenceEqual(_currentData);
+                    _currentData = data.ToArray();
                     if (dataMatches)
                     {
                         return;
                     }
-
-                    _currentData = data.ToArray();
                 }
             }
 
-            SpanOrArray<byte> result = ConvertToHostCompatibleFormat(data);
+            data = ConvertToHostCompatibleFormat(data);
 
-            HostTexture.SetData(result);
+            HostTexture.SetData(data);
 
             _hasData = true;
         }
@@ -728,13 +674,13 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// Uploads new texture data to the host GPU.
         /// </summary>
         /// <param name="data">New data</param>
-        public void SetData(SpanOrArray<byte> data)
+        public void SetData(ReadOnlySpan<byte> data)
         {
             BlacklistScale();
 
-            Group.CheckDirty(this, true);
+            Group.ConsumeDirty(this);
 
-            AlwaysFlushOnOverlap = true;
+            IsModified = false;
 
             HostTexture.SetData(data);
 
@@ -747,7 +693,7 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// <param name="data">New data</param>
         /// <param name="layer">Target layer</param>
         /// <param name="level">Target level</param>
-        public void SetData(SpanOrArray<byte> data, int layer, int level)
+        public void SetData(ReadOnlySpan<byte> data, int layer, int level)
         {
             BlacklistScale();
 
@@ -759,64 +705,40 @@ namespace Ryujinx.Graphics.Gpu.Image
         }
 
         /// <summary>
-        /// Uploads new texture data to the host GPU for a specific layer/level and 2D sub-region.
-        /// </summary>
-        /// <param name="data">New data</param>
-        /// <param name="layer">Target layer</param>
-        /// <param name="level">Target level</param>
-        /// <param name="region">Target sub-region of the texture to update</param>
-        public void SetData(ReadOnlySpan<byte> data, int layer, int level, Rectangle<int> region)
-        {
-            BlacklistScale();
-
-            HostTexture.SetData(data, layer, level, region);
-
-            _currentData = null;
-
-            _hasData = true;
-        }
-
-        /// <summary>
         /// Converts texture data to a format and layout that is supported by the host GPU.
         /// </summary>
         /// <param name="data">Data to be converted</param>
-        /// <param name="level">Mip level to convert</param>
-        /// <param name="single">True to convert a single slice</param>
         /// <returns>Converted data</returns>
-        public SpanOrArray<byte> ConvertToHostCompatibleFormat(ReadOnlySpan<byte> data, int level = 0, bool single = false)
+        public ReadOnlySpan<byte> ConvertToHostCompatibleFormat(ReadOnlySpan<byte> data, int level = 0, bool single = false)
         {
             int width = Info.Width;
             int height = Info.Height;
 
-            int depth = _depth;
+            int depth = single ? 1 : _depth;
             int layers = single ? 1 : _layers;
-            int levels = single ? 1 : (Info.Levels - level);
+            int levels = single ? 1 : Info.Levels;
 
             width = Math.Max(width >> level, 1);
             height = Math.Max(height >> level, 1);
             depth = Math.Max(depth >> level, 1);
 
-            SpanOrArray<byte> result;
-
             if (Info.IsLinear)
             {
-                result = LayoutConverter.ConvertLinearStridedToLinear(
+                data = LayoutConverter.ConvertLinearStridedToLinear(
                     width,
                     height,
                     Info.FormatInfo.BlockWidth,
                     Info.FormatInfo.BlockHeight,
-                    Info.Stride,
                     Info.Stride,
                     Info.FormatInfo.BytesPerPixel,
                     data);
             }
             else
             {
-                result = LayoutConverter.ConvertBlockLinearToLinear(
+                data = LayoutConverter.ConvertBlockLinearToLinear(
                     width,
                     height,
                     depth,
-                    single ? 1 : depth,
                     levels,
                     layers,
                     Info.FormatInfo.BlockWidth,
@@ -832,10 +754,10 @@ namespace Ryujinx.Graphics.Gpu.Image
             // Handle compressed cases not supported by the host:
             // - ASTC is usually not supported on desktop cards.
             // - BC4/BC5 is not supported on 3D textures.
-            if (!_context.Capabilities.SupportsAstcCompression && Format.IsAstc())
+            if (!_context.Capabilities.SupportsAstcCompression && Info.FormatInfo.Format.IsAstc())
             {
                 if (!AstcDecoder.TryDecodeToRgba8P(
-                    result.ToArray(),
+                    data.ToArray(),
                     Info.FormatInfo.BlockWidth,
                     Info.FormatInfo.BlockHeight,
                     width,
@@ -843,167 +765,22 @@ namespace Ryujinx.Graphics.Gpu.Image
                     depth,
                     levels,
                     layers,
-                    out byte[] decoded))
+                    out Span<byte> decoded))
                 {
                     string texInfo = $"{Info.Target} {Info.FormatInfo.Format} {Info.Width}x{Info.Height}x{Info.DepthOrLayers} levels {Info.Levels}";
 
                     Logger.Debug?.Print(LogClass.Gpu, $"Invalid ASTC texture at 0x{Info.GpuAddress:X} ({texInfo}).");
                 }
 
-                if (GraphicsConfig.EnableTextureRecompression)
-                {
-                    decoded = BCnEncoder.EncodeBC7(decoded, width, height, depth, levels, layers);
-                }
-
-                result = decoded;
+                data = decoded;
             }
-            else if (!_context.Capabilities.SupportsEtc2Compression && Format.IsEtc2())
+            else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc4())
             {
-                switch (Format)
-                {
-                    case Format.Etc2RgbaSrgb:
-                    case Format.Etc2RgbaUnorm:
-                        result = ETC2Decoder.DecodeRgba(result, width, height, depth, levels, layers);
-                        break;
-                    case Format.Etc2RgbPtaSrgb:
-                    case Format.Etc2RgbPtaUnorm:
-                        result = ETC2Decoder.DecodePta(result, width, height, depth, levels, layers);
-                        break;
-                    case Format.Etc2RgbSrgb:
-                    case Format.Etc2RgbUnorm:
-                        result = ETC2Decoder.DecodeRgb(result, width, height, depth, levels, layers);
-                        break;
-                }
+                data = BCnDecoder.DecodeBC4(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc4Snorm);
             }
-            else if (!TextureCompatibility.HostSupportsBcFormat(Format, Target, _context.Capabilities))
+            else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc5())
             {
-                switch (Format)
-                {
-                    case Format.Bc1RgbaSrgb:
-                    case Format.Bc1RgbaUnorm:
-                        result = BCnDecoder.DecodeBC1(result, width, height, depth, levels, layers);
-                        break;
-                    case Format.Bc2Srgb:
-                    case Format.Bc2Unorm:
-                        result = BCnDecoder.DecodeBC2(result, width, height, depth, levels, layers);
-                        break;
-                    case Format.Bc3Srgb:
-                    case Format.Bc3Unorm:
-                        result = BCnDecoder.DecodeBC3(result, width, height, depth, levels, layers);
-                        break;
-                    case Format.Bc4Snorm:
-                    case Format.Bc4Unorm:
-                        result = BCnDecoder.DecodeBC4(result, width, height, depth, levels, layers, Format == Format.Bc4Snorm);
-                        break;
-                    case Format.Bc5Snorm:
-                    case Format.Bc5Unorm:
-                        result = BCnDecoder.DecodeBC5(result, width, height, depth, levels, layers, Format == Format.Bc5Snorm);
-                        break;
-                    case Format.Bc6HSfloat:
-                    case Format.Bc6HUfloat:
-                        result = BCnDecoder.DecodeBC6(result, width, height, depth, levels, layers, Format == Format.Bc6HSfloat);
-                        break;
-                    case Format.Bc7Srgb:
-                    case Format.Bc7Unorm:
-                        result = BCnDecoder.DecodeBC7(result, width, height, depth, levels, layers);
-                        break;
-                }
-            }
-            else if (!_context.Capabilities.SupportsR4G4Format && Format == Format.R4G4Unorm)
-            {
-                result = PixelConverter.ConvertR4G4ToR4G4B4A4(result, width);
-
-                if (!_context.Capabilities.SupportsR4G4B4A4Format)
-                {
-                    result = PixelConverter.ConvertR4G4B4A4ToR8G8B8A8(result, width);
-                }
-            }
-            else if (Format == Format.R4G4B4A4Unorm)
-            {
-                if (!_context.Capabilities.SupportsR4G4B4A4Format)
-                {
-                    result = PixelConverter.ConvertR4G4B4A4ToR8G8B8A8(result, width);
-                }
-            }
-            else if (!_context.Capabilities.Supports5BitComponentFormat && Format.Is16BitPacked())
-            {
-                switch (Format)
-                {
-                    case Format.B5G6R5Unorm:
-                    case Format.R5G6B5Unorm:
-                        result = PixelConverter.ConvertR5G6B5ToR8G8B8A8(result, width);
-                        break;
-                    case Format.B5G5R5A1Unorm:
-                    case Format.R5G5B5X1Unorm:
-                    case Format.R5G5B5A1Unorm:
-                        result = PixelConverter.ConvertR5G5B5ToR8G8B8A8(result, width, Format == Format.R5G5B5X1Unorm);
-                        break;
-                    case Format.A1B5G5R5Unorm:
-                        result = PixelConverter.ConvertA1B5G5R5ToR8G8B8A8(result, width);
-                        break;
-                    case Format.R4G4B4A4Unorm:
-                        result = PixelConverter.ConvertR4G4B4A4ToR8G8B8A8(result, width);
-                        break;
-                }
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// Converts texture data from a format and layout that is supported by the host GPU, back into the intended format on the guest GPU.
-        /// </summary>
-        /// <param name="output">Optional output span to convert into</param>
-        /// <param name="data">Data to be converted</param>
-        /// <param name="level">Mip level to convert</param>
-        /// <param name="single">True to convert a single slice</param>
-        /// <returns>Converted data</returns>
-        public ReadOnlySpan<byte> ConvertFromHostCompatibleFormat(Span<byte> output, ReadOnlySpan<byte> data, int level = 0, bool single = false)
-        {
-            if (Target != Target.TextureBuffer)
-            {
-                int width = Info.Width;
-                int height = Info.Height;
-
-                int depth = _depth;
-                int layers = single ? 1 : _layers;
-                int levels = single ? 1 : (Info.Levels - level);
-
-                width = Math.Max(width >> level, 1);
-                height = Math.Max(height >> level, 1);
-                depth = Math.Max(depth >> level, 1);
-
-                if (Info.IsLinear)
-                {
-                    data = LayoutConverter.ConvertLinearToLinearStrided(
-                        output,
-                        Info.Width,
-                        Info.Height,
-                        Info.FormatInfo.BlockWidth,
-                        Info.FormatInfo.BlockHeight,
-                        Info.Stride,
-                        Info.FormatInfo.BytesPerPixel,
-                        data);
-                }
-                else
-                {
-                    data = LayoutConverter.ConvertLinearToBlockLinear(
-                        output,
-                        width,
-                        height,
-                        depth,
-                        single ? 1 : depth,
-                        levels,
-                        layers,
-                        Info.FormatInfo.BlockWidth,
-                        Info.FormatInfo.BlockHeight,
-                        Info.FormatInfo.BytesPerPixel,
-                        Info.GobBlocksInY,
-                        Info.GobBlocksInZ,
-                        Info.GobBlocksInTileX,
-                        _sizeInfo,
-                        data);
-                }
+                data = BCnDecoder.DecodeBC5(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc5Snorm);
             }
 
             return data;
@@ -1018,61 +795,59 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// This may cause data corruption if the memory is already being used for something else on the CPU side.
         /// </summary>
         /// <param name="tracked">Whether or not the flush triggers write tracking. If it doesn't, the texture will not be blacklisted for scaling either.</param>
-        /// <returns>True if data was flushed, false otherwise</returns>
-        public bool FlushModified(bool tracked = true)
+        public void Flush(bool tracked = true)
         {
-            return TextureCompatibility.CanTextureFlush(Info, _context.Capabilities) && Group.FlushModified(this, tracked);
-        }
-
-        /// <summary>
-        /// Flushes the texture data.
-        /// This causes the texture data to be written back to guest memory.
-        /// If the texture was written by the GPU, this includes all modification made by the GPU
-        /// up to this point.
-        /// Be aware that this is an expensive operation, avoid calling it unless strictly needed.
-        /// This may cause data corruption if the memory is already being used for something else on the CPU side.
-        /// </summary>
-        /// <param name="tracked">Whether or not the flush triggers write tracking. If it doesn't, the texture will not be blacklisted for scaling either.</param>
-        public void Flush(bool tracked)
-        {
-            if (TextureCompatibility.CanTextureFlush(Info, _context.Capabilities))
+            IsModified = false;
+            if (TextureCompatibility.IsFormatHostIncompatible(Info, _context.Capabilities))
             {
-                FlushTextureDataToGuest(tracked);
+                return; // Flushing this format is not supported, as it may have been converted to another host format.
+            }
+
+            if (tracked)
+            {
+                _context.PhysicalMemory.Write(Range, GetTextureDataFromGpu(tracked));
+            }
+            else
+            {
+                _context.PhysicalMemory.WriteUntracked(Range, GetTextureDataFromGpu(tracked));
             }
         }
 
         /// <summary>
-        /// Gets a host texture to use for flushing the texture, at 1x resolution.
-        /// If the HostTexture is already at 1x resolution, it is returned directly.
+        /// Flushes the texture data, to be called from an external thread.
+        /// The host backend must ensure that we have shared access to the resource from this thread.
+        /// This is used when flushing from memory access handlers.
         /// </summary>
-        /// <returns>The host texture to flush</returns>
-        public ITexture GetFlushTexture()
+        public void ExternalFlush(ulong address, ulong size)
         {
-            ITexture texture = HostTexture;
-            if (ScaleFactor != 1f)
+            if (!IsModified)
             {
-                // If needed, create a texture to flush back to host at 1x scale.
-                texture = _flushHostTexture = GetScaledHostTexture(1f, _flushHostTexture);
+                return;
             }
 
-            return texture;
-        }
+            _context.Renderer.BackgroundContextAction(() =>
+            {
+                IsModified = false;
+                if (TextureCompatibility.IsFormatHostIncompatible(Info, _context.Capabilities))
+                {
+                    return; // Flushing this format is not supported, as it may have been converted to another host format.
+                }
 
-        /// <summary>
-        /// Gets data from the host GPU, and flushes it all to guest memory.
-        /// </summary>
-        /// <remarks>
-        /// This method should be used to retrieve data that was modified by the host GPU.
-        /// This is not cheap, avoid doing that unless strictly needed.
-        /// When possible, the data is written directly into guest memory, rather than copied.
-        /// </remarks>
-        /// <param name="tracked">True if writing the texture data is tracked, false otherwise</param>
-        /// <param name="texture">The specific host texture to flush. Defaults to this texture</param>
-        public void FlushTextureDataToGuest(bool tracked, ITexture texture = null)
-        {
-            using WritableRegion region = _physicalMemory.GetWritableRegion(Range, tracked);
+                if (Info.Target == Target.Texture2DMultisample ||
+                    Info.Target == Target.Texture2DMultisampleArray)
+                {
+                    return; // Flushing multisample textures is not supported, the host does not allow getting their data.
+                }
 
-            GetTextureDataFromGpu(region.Memory.Span, tracked, texture);
+                ITexture texture = HostTexture;
+                if (ScaleFactor != 1f)
+                {
+                    // If needed, create a texture to flush back to host at 1x scale.
+                    texture = _flushHostTexture = GetScaledHostTexture(1f, _flushHostTexture);
+                }
+
+                _context.PhysicalMemory.WriteUntracked(Range, GetTextureDataFromGpu(false, texture));
+            });
         }
 
         /// <summary>
@@ -1082,13 +857,10 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// This method should be used to retrieve data that was modified by the host GPU.
         /// This is not cheap, avoid doing that unless strictly needed.
         /// </remarks>
-        /// <param name="output">An output span to place the texture data into. If empty, one is generated</param>
-        /// <param name="blacklist">True if the texture should be blacklisted, false otherwise</param>
-        /// <param name="texture">The specific host texture to flush. Defaults to this texture</param>
-        /// <returns>The span containing the texture data</returns>
-        private ReadOnlySpan<byte> GetTextureDataFromGpu(Span<byte> output, bool blacklist, ITexture texture = null)
+        /// <returns>Host texture data</returns>
+        private Span<byte> GetTextureDataFromGpu(bool blacklist, ITexture texture = null)
         {
-            ReadOnlySpan<byte> data;
+            Span<byte> data;
 
             if (texture != null)
             {
@@ -1114,53 +886,37 @@ namespace Ryujinx.Graphics.Gpu.Image
                 }
             }
 
-            data = ConvertFromHostCompatibleFormat(output, data);
-
-            return data;
-        }
-
-        /// <summary>
-        /// Gets data from the host GPU for a single slice.
-        /// </summary>
-        /// <remarks>
-        /// This method should be used to retrieve data that was modified by the host GPU.
-        /// This is not cheap, avoid doing that unless strictly needed.
-        /// </remarks>
-        /// <param name="output">An output span to place the texture data into. If empty, one is generated</param>
-        /// <param name="layer">The layer of the texture to flush</param>
-        /// <param name="level">The level of the texture to flush</param>
-        /// <param name="blacklist">True if the texture should be blacklisted, false otherwise</param>
-        /// <param name="texture">The specific host texture to flush. Defaults to this texture</param>
-        /// <returns>The span containing the texture data</returns>
-        public ReadOnlySpan<byte> GetTextureDataSliceFromGpu(Span<byte> output, int layer, int level, bool blacklist, ITexture texture = null)
-        {
-            ReadOnlySpan<byte> data;
-
-            if (texture != null)
+            if (Target != Target.TextureBuffer)
             {
-                data = texture.GetData(layer, level);
-            }
-            else
-            {
-                if (blacklist)
+                if (Info.IsLinear)
                 {
-                    BlacklistScale();
-                    data = HostTexture.GetData(layer, level);
-                }
-                else if (ScaleFactor != 1f)
-                {
-                    float scale = ScaleFactor;
-                    SetScale(1f);
-                    data = HostTexture.GetData(layer, level);
-                    SetScale(scale);
+                    data = LayoutConverter.ConvertLinearToLinearStrided(
+                        Info.Width,
+                        Info.Height,
+                        Info.FormatInfo.BlockWidth,
+                        Info.FormatInfo.BlockHeight,
+                        Info.Stride,
+                        Info.FormatInfo.BytesPerPixel,
+                        data);
                 }
                 else
                 {
-                    data = HostTexture.GetData(layer, level);
+                    data = LayoutConverter.ConvertLinearToBlockLinear(
+                        Info.Width,
+                        Info.Height,
+                        _depth,
+                        Info.Levels,
+                        _layers,
+                        Info.FormatInfo.BlockWidth,
+                        Info.FormatInfo.BlockHeight,
+                        Info.FormatInfo.BytesPerPixel,
+                        Info.GobBlocksInY,
+                        Info.GobBlocksInZ,
+                        Info.GobBlocksInTileX,
+                        _sizeInfo,
+                        data);
                 }
             }
-
-            data = ConvertFromHostCompatibleFormat(output, data, level, true);
 
             return data;
         }
@@ -1185,7 +941,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                 return TextureMatchQuality.NoMatch;
             }
 
-            if (!TextureCompatibility.SizeMatches(Info, info, (flags & TextureSearchFlags.Strict) == 0, FirstLevel))
+            if (!TextureCompatibility.SizeMatches(Info, info, (flags & TextureSearchFlags.Strict) == 0))
             {
                 return TextureMatchQuality.NoMatch;
             }
@@ -1220,65 +976,46 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// </summary>
         /// <param name="info">Texture view information</param>
         /// <param name="range">Texture view physical memory ranges</param>
-        /// <param name="layerSize">Layer size on the given texture</param>
-        /// <param name="caps">Host GPU capabilities</param>
         /// <param name="firstLayer">Texture view initial layer on this texture</param>
         /// <param name="firstLevel">Texture view first mipmap level on this texture</param>
         /// <returns>The level of compatiblilty a view with the given parameters created from this texture has</returns>
-        public TextureViewCompatibility IsViewCompatible(TextureInfo info, MultiRange range, int layerSize, Capabilities caps, out int firstLayer, out int firstLevel)
+        public TextureViewCompatibility IsViewCompatible(TextureInfo info, MultiRange range, int layerSize, out int firstLayer, out int firstLevel)
         {
-            TextureViewCompatibility result = TextureViewCompatibility.Full;
+            int offset = Range.FindOffset(range);
 
-            result = TextureCompatibility.PropagateViewCompatibility(result, TextureCompatibility.ViewFormatCompatible(Info, info, caps));
-            if (result != TextureViewCompatibility.Incompatible)
+            // Out of range.
+            if (offset < 0)
             {
-                result = TextureCompatibility.PropagateViewCompatibility(result, TextureCompatibility.ViewTargetCompatible(Info, info, ref caps));
+                firstLayer = 0;
+                firstLevel = 0;
 
-                bool bothMs = Info.Target.IsMultisample() && info.Target.IsMultisample();
-                if (bothMs && (Info.SamplesInX != info.SamplesInX || Info.SamplesInY != info.SamplesInY))
-                {
-                    result = TextureViewCompatibility.Incompatible;
-                }
-
-                if (result == TextureViewCompatibility.Full && Info.FormatInfo.Format != info.FormatInfo.Format && !_context.Capabilities.SupportsMismatchingViewFormat)
-                {
-                    // AMD and Intel have a bug where the view format is always ignored;
-                    // they use the parent format instead.
-                    // Create a copy dependency to avoid this issue.
-
-                    result = TextureViewCompatibility.CopyOnly;
-                }
+                return TextureViewCompatibility.Incompatible;
             }
 
-            firstLayer = 0;
-            firstLevel = 0;
-
-            if (result == TextureViewCompatibility.Incompatible)
+            if (!_sizeInfo.FindView(offset, out firstLayer, out firstLevel))
             {
                 return TextureViewCompatibility.Incompatible;
             }
 
-            int offset = Range.FindOffset(range);
-
-            if (offset < 0 || !_sizeInfo.FindView(offset, out firstLayer, out firstLevel))
-            {
-                return TextureViewCompatibility.LayoutIncompatible;
-            }
-
             if (!TextureCompatibility.ViewLayoutCompatible(Info, info, firstLevel))
             {
-                return TextureViewCompatibility.LayoutIncompatible;
+                return TextureViewCompatibility.Incompatible;
             }
 
             if (info.GetSlices() > 1 && LayerSize != layerSize)
             {
-                return TextureViewCompatibility.LayoutIncompatible;
+                return TextureViewCompatibility.Incompatible;
             }
 
+            TextureViewCompatibility result = TextureViewCompatibility.Full;
+
+            result = TextureCompatibility.PropagateViewCompatibility(result, TextureCompatibility.ViewFormatCompatible(Info, info));
             result = TextureCompatibility.PropagateViewCompatibility(result, TextureCompatibility.ViewSizeMatches(Info, info, firstLevel));
+            result = TextureCompatibility.PropagateViewCompatibility(result, TextureCompatibility.ViewTargetCompatible(Info, info));
             result = TextureCompatibility.PropagateViewCompatibility(result, TextureCompatibility.ViewSubImagesInBounds(Info, info, firstLayer, firstLevel));
 
-            return result;
+            return (Info.SamplesInX == info.SamplesInX &&
+                    Info.SamplesInY == info.SamplesInY) ? result : TextureViewCompatibility.Incompatible;
         }
 
         /// <summary>
@@ -1297,18 +1034,16 @@ namespace Ryujinx.Graphics.Gpu.Image
 
             if (_arrayViewTexture == null && IsSameDimensionsTarget(target))
             {
-                FormatInfo formatInfo = TextureCompatibility.ToHostCompatibleFormat(Info, _context.Capabilities);
-
                 TextureCreateInfo createInfo = new TextureCreateInfo(
                     Info.Width,
                     Info.Height,
                     target == Target.CubemapArray ? 6 : 1,
                     Info.Levels,
                     Info.Samples,
-                    formatInfo.BlockWidth,
-                    formatInfo.BlockHeight,
-                    formatInfo.BytesPerPixel,
-                    formatInfo.Format,
+                    Info.FormatInfo.BlockWidth,
+                    Info.FormatInfo.BlockHeight,
+                    Info.FormatInfo.BytesPerPixel,
+                    Info.FormatInfo.Format,
                     Info.DepthStencilMode,
                     target,
                     Info.SwizzleR,
@@ -1329,24 +1064,6 @@ namespace Ryujinx.Graphics.Gpu.Image
             }
 
             return null;
-        }
-
-        /// <summary>
-        /// Determine if this texture can have anisotropic filtering forced.
-        /// Filtered textures that we might want to force anisotropy on should have a lot of mip levels.
-        /// </summary>
-        /// <returns>True if anisotropic filtering can be forced, false otherwise</returns>
-        private bool CanTextureForceAnisotropy()
-        {
-            if (!(Target == Target.Texture2D || Target == Target.Texture2DArray))
-            {
-                return false;
-            }
-
-            int maxSize = Math.Max(Info.Width, Info.Height);
-            int maxLevels = BitOperations.Log2((uint)maxSize) + 1;
-
-            return Info.Levels >= Math.Min(MinLevelsForForceAnisotropy, maxLevels);
         }
 
         /// <summary>
@@ -1408,7 +1125,7 @@ namespace Ryujinx.Graphics.Gpu.Image
 
                 foreach (Texture view in viewCopy)
                 {
-                    TextureCreateInfo createInfo = TextureCache.GetCreateInfo(view.Info, _context.Capabilities, ScaleFactor);
+                    TextureCreateInfo createInfo = TextureManager.GetCreateInfo(view.Info, _context.Capabilities, ScaleFactor);
 
                     ITexture newView = parent.HostTexture.CreateView(createInfo, view.FirstLayer + firstLayer, view.FirstLevel + firstLevel);
 
@@ -1439,9 +1156,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         {
             Info = info;
             Target = info.Target;
-            Width = info.Width;
-            Height = info.Height;
-            CanForceAnisotropy = CanTextureForceAnisotropy();
 
             _depth  = info.GetDepth();
             _layers = info.GetLayers();
@@ -1452,13 +1166,12 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// </summary>
         public void SignalModified()
         {
-            if (_modifiedStale || Group.HasCopyDependencies)
+            bool wasModified = IsModified;
+            if (!wasModified || Group.HasCopyDependencies)
             {
-                _modifiedStale = false;
-                Group.SignalModified(this);
+                IsModified = true;
+                Group.SignalModified(this, !wasModified);
             }
-
-            _physicalMemory.TextureCache.Lift(this);
         }
 
         /// <summary>
@@ -1468,13 +1181,13 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// <param name="bound">True if the texture has been bound, false if it has been unbound</param>
         public void SignalModifying(bool bound)
         {
-            if (_modifiedStale || Group.HasCopyDependencies)
-            {
-                _modifiedStale = false;
-                Group.SignalModifying(this, bound);
-            }
+            bool wasModified = IsModified;
 
-            _physicalMemory.TextureCache.Lift(this);
+            if (!wasModified || Group.HasCopyDependencies)
+            {
+                IsModified = true;
+                Group.SignalModifying(this, bound, !wasModified);
+            }
 
             if (bound)
             {
@@ -1498,37 +1211,22 @@ namespace Ryujinx.Graphics.Gpu.Image
         }
 
         /// <summary>
-        /// Determine if any of this texture's data overlaps with another.
+        /// Determine if any of our child textures are compaible as views of the given texture.
         /// </summary>
         /// <param name="texture">The texture to check against</param>
-        /// <param name="compatibility">The view compatibility of the two textures</param>
-        /// <returns>True if any slice of the textures overlap, false otherwise</returns>
-        public bool DataOverlaps(Texture texture, TextureViewCompatibility compatibility)
+        /// <returns>True if any child is view compatible, false otherwise</returns>
+        public bool HasViewCompatibleChild(Texture texture)
         {
-            if (compatibility == TextureViewCompatibility.LayoutIncompatible && Info.GobBlocksInZ > 1 && Info.GobBlocksInZ == texture.Info.GobBlocksInZ)
+            if (_viewStorage != this || _views.Count == 0)
             {
-                // Allow overlapping slices of layout compatible 3D textures with matching GobBlocksInZ, as they are interleaved.
                 return false;
             }
 
-            if (texture._sizeInfo.AllOffsets.Length == 1 && _sizeInfo.AllOffsets.Length == 1)
+            foreach (Texture view in _views)
             {
-                return Range.OverlapsWith(texture.Range);
-            }
-
-            MultiRange otherRange = texture.Range;
-
-            IEnumerable<MultiRange> regions = _sizeInfo.AllRegions().Select((region) => Range.GetSlice((ulong)region.Offset, (ulong)region.Size));
-            IEnumerable<MultiRange> otherRegions = texture._sizeInfo.AllRegions().Select((region) => otherRange.GetSlice((ulong)region.Offset, (ulong)region.Size));
-
-            foreach (MultiRange region in regions)
-            {
-                foreach (MultiRange otherRegion in otherRegions)
+                if (texture.IsViewCompatible(view.Info, view.Range, view.LayerSize, out _, out _) != TextureViewCompatibility.Incompatible)
                 {
-                    if (region.OverlapsWith(otherRegion))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
 
@@ -1573,7 +1271,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                     _viewStorage.RemoveView(this);
                 }
 
-                _physicalMemory.TextureCache.RemoveTextureFromCache(this);
+                _context.Methods.TextureManager.RemoveTextureFromCache(this);
             }
 
             Debug.Assert(newRefCount >= 0);
@@ -1623,8 +1321,6 @@ namespace Ryujinx.Graphics.Gpu.Image
 
                 _poolOwners.Clear();
             }
-
-            InvalidatedSequence++;
         }
 
         /// <summary>
@@ -1649,8 +1345,6 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// </summary>
         private void DisposeTextures()
         {
-            InvalidatedSequence++;
-
             _currentData = null;
             HostTexture.Release();
 
@@ -1665,15 +1359,11 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// Called when the memory for this texture has been unmapped.
         /// Calls are from non-gpu threads.
         /// </summary>
-        /// <param name="unmapRange">The range of memory being unmapped</param>
-        public void Unmapped(MultiRange unmapRange)
+        public void Unmapped()
         {
             ChangedMapping = true;
 
-            if (Group.Storage == this)
-            {
-                Group.ClearModified(unmapRange);
-            }
+            IsModified = false; // We shouldn't flush this texture, as its memory is no longer mapped.
 
             RemoveFromPools(true);
         }
@@ -1684,6 +1374,8 @@ namespace Ryujinx.Graphics.Gpu.Image
         public void Dispose()
         {
             DisposeTextures();
+
+            Disposed?.Invoke(this);
 
             if (Group.Storage == this)
             {

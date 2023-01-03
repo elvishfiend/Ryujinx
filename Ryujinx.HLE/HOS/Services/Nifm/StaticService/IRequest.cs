@@ -8,13 +8,6 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
 {
     class IRequest : IpcService
     {
-        private enum RequestState
-        {
-            Error = 1,
-            OnHold = 2,
-            Available = 3
-        }
-
         private KEvent _event0;
         private KEvent _event1;
 
@@ -31,22 +24,18 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             _version = version;
         }
 
-        [CommandHipc(0)]
+        [Command(0)]
         // GetRequestState() -> u32
         public ResultCode GetRequestState(ServiceCtx context)
         {
-            RequestState requestState = context.Device.Configuration.EnableInternetAccess
-                ? RequestState.Available
-                : RequestState.Error;
-
-            context.ResponseData.Write((int)requestState);
+            context.ResponseData.Write(1);
 
             Logger.Stub?.PrintStub(LogClass.ServiceNifm);
 
             return ResultCode.Success;
         }
 
-        [CommandHipc(1)]
+        [Command(1)]
         // GetResult()
         public ResultCode GetResult(ServiceCtx context)
         {
@@ -60,7 +49,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(2)]
+        [Command(2)]
         // GetSystemEventReadableHandles() -> (handle<copy>, handle<copy>)
         public ResultCode GetSystemEventReadableHandles(ServiceCtx context)
         {
@@ -85,7 +74,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(3)]
+        [Command(3)]
         // Cancel()
         public ResultCode Cancel(ServiceCtx context)
         {
@@ -94,7 +83,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(4)]
+        [Command(4)]
         // Submit()
         public ResultCode Submit(ServiceCtx context)
         {
@@ -103,7 +92,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(11)]
+        [Command(11)]
         // SetConnectionConfirmationOption(i8)
         public ResultCode SetConnectionConfirmationOption(ServiceCtx context)
         {
@@ -112,7 +101,7 @@ namespace Ryujinx.HLE.HOS.Services.Nifm.StaticService
             return ResultCode.Success;
         }
 
-        [CommandHipc(21)]
+        [Command(21)]
         // GetAppletInfo(u32) -> (u32, u32, u32, buffer<bytes, 6>)
         public ResultCode GetAppletInfo(ServiceCtx context)
         {

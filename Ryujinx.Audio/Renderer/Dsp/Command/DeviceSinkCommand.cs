@@ -1,3 +1,20 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using Ryujinx.Audio.Integration;
 using Ryujinx.Audio.Renderer.Server.Sink;
 using System;
@@ -14,7 +31,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         public CommandType CommandType => CommandType.DeviceSink;
 
-        public uint EstimatedProcessingTime { get; set; }
+        public ulong EstimatedProcessingTime { get; set; }
 
         public string DeviceName { get; }
 
@@ -35,7 +52,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
             InputCount = sink.Parameter.InputCount;
             InputBufferIndices = new ushort[InputCount];
 
-            for (int i = 0; i < Math.Min(InputCount, Constants.ChannelCountMax); i++)
+            for (int i = 0; i < InputCount; i++)
             {
                 InputBufferIndices[i] = (ushort)(bufferOffset + sink.Parameter.Input[i]);
             }

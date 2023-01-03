@@ -1,15 +1,12 @@
-﻿using Ryujinx.Common.Memory;
-
-namespace Ryujinx.Graphics.Nvdec.Types.H264
+﻿namespace Ryujinx.Graphics.Nvdec.Types.H264
 {
     struct ReferenceFrame
     {
 #pragma warning disable CS0649
-        public uint Flags;
-        public Array2<uint> FieldOrderCnt;
-        public uint FrameNum;
+        public uint Unknown0;
+        public uint Unknown4;
+        public uint Unknown8;
+        public uint UnknownC;
 #pragma warning restore CS0649
-
-        public uint OutputSurfaceIndex => (uint)Flags & 0x7f;
     }
 }

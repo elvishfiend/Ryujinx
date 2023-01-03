@@ -1,7 +1,7 @@
 using ARMeilleure.Decoders;
 using ARMeilleure.Translation;
 
-using static ARMeilleure.IntermediateRepresentation.Operand.Factory;
+using static ARMeilleure.IntermediateRepresentation.OperandHelper;
 
 namespace ARMeilleure.Instructions
 {
@@ -9,24 +9,17 @@ namespace ARMeilleure.Instructions
     {
         public static void Brk(ArmEmitterContext context)
         {
-            OpCodeException op = (OpCodeException)context.CurrOp;
-
-            string name = nameof(NativeInterface.Break);
-
-            context.StoreToContext();
-
-            context.Call(typeof(NativeInterface).GetMethod(name), Const(op.Address), Const(op.Id));
-
-            context.LoadFromContext();
-
-            context.Return(Const(op.Address));
+            EmitExceptionCall(context, nameof(NativeInterface.Break));
         }
 
         public static void Svc(ArmEmitterContext context)
         {
-            OpCodeException op = (OpCodeException)context.CurrOp;
+            EmitExceptionCall(context, nameof(NativeInterface.SupervisorCall));
+        }
 
-            string name = nameof(NativeInterface.SupervisorCall);
+        private static void EmitExceptionCall(ArmEmitterContext context, string name)
+        {
+            OpCodeException op = (OpCodeException)context.CurrOp;
 
             context.StoreToContext();
 
@@ -48,8 +41,6 @@ namespace ARMeilleure.Instructions
             context.Call(typeof(NativeInterface).GetMethod(name), Const(op.Address), Const(op.RawOpCode));
 
             context.LoadFromContext();
-
-            context.Return(Const(op.Address));
         }
     }
 }

@@ -1,3 +1,20 @@
+//
+// Copyright (c) 2019-2021 Ryujinx
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+
 using System;
 using System.Runtime.CompilerServices;
 
@@ -11,14 +28,14 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
         public CommandType CommandType => CommandType.DownMixSurroundToStereo;
 
-        public uint EstimatedProcessingTime { get; set; }
+        public ulong EstimatedProcessingTime { get; set; }
 
         public ushort[] InputBufferIndices { get; }
         public ushort[] OutputBufferIndices { get; }
 
         public float[] Coefficients { get; }
 
-        public DownMixSurroundToStereoCommand(uint bufferOffset, Span<byte> inputBufferOffset, Span<byte> outputBufferOffset, float[] downMixParameter, int nodeId)
+        public DownMixSurroundToStereoCommand(uint bufferOffset, Span<byte> inputBufferOffset, Span<byte> outputBufferOffset, ReadOnlySpan<float> downMixParameter, int nodeId)
         {
             Enabled = true;
             NodeId = nodeId;
@@ -32,7 +49,7 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
                 OutputBufferIndices[i] = (ushort)(bufferOffset + outputBufferOffset[i]);
             }
 
-            Coefficients = downMixParameter;
+            Coefficients = downMixParameter.ToArray();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -52,6 +69,10 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
 
             Span<float> stereoLeft = context.GetBuffer(OutputBufferIndices[0]);
             Span<float> stereoRight = context.GetBuffer(OutputBufferIndices[1]);
+            Span<float> unused2 = context.GetBuffer(OutputBufferIndices[2]);
+            Span<float> unused3 = context.GetBuffer(OutputBufferIndices[3]);
+            Span<float> unused4 = context.GetBuffer(OutputBufferIndices[4]);
+            Span<float> unused5 = context.GetBuffer(OutputBufferIndices[5]);
 
             for (int i = 0; i < context.SampleCount; i++)
             {
@@ -59,10 +80,10 @@ namespace Ryujinx.Audio.Renderer.Dsp.Command
                 stereoRight[i] = DownMixSurroundToStereo(Coefficients, backRight[i], lowFrequency[i], frontCenter[i], frontRight[i]);
             }
 
-            context.ClearBuffer(OutputBufferIndices[2]);
-            context.ClearBuffer(OutputBufferIndices[3]);
-            context.ClearBuffer(OutputBufferIndices[4]);
-            context.ClearBuffer(OutputBufferIndices[5]);
+            unused2.Fill(0);
+            unused3.Fill(0);
+            unused4.Fill(0);
+            unused5.Fill(0);
         }
     }
 }
